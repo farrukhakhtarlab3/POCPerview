@@ -5,6 +5,12 @@ mangled in the PowerShell console.
 
 Background and troubleshooting are in [README.md](README.md).
 
+> **The quarantine queue holds production mail.** Verified 21 Oct 2026 — real
+> staff, real personal recipient addresses, real correspondence. Steps 1 to 8
+> are read-only and safe. Step 9 releases a real message and needs explicit
+> sign-off. Anything written to `out/` is real personal data: keep it on the
+> VDI and delete it when finished.
+
 ---
 
 ### 1. Open PowerShell
@@ -104,7 +110,30 @@ Wider window (service maximum is 30 days):
 .\03-Get-QuarantineMessages.ps1 -Days 30
 ```
 
-Copy an `Identity` value. Format is `guid1\guid2`.
+#### Getting an Identity value
+
+The table is wide and the `Identity` column often runs off the right of the
+console. Use `Format-List` instead — nothing truncates:
+
+```powershell
+Get-QuarantineMessage -Direction Outbound -Type DataLossPrevention -PageSize 10 | Select-Object Subject, SenderAddress, Identity | Format-List
+```
+
+Or read it back from the CSV step 7 already wrote:
+
+```powershell
+Import-Csv (Get-ChildItem .\out\quarantine-*.csv | Select-Object -Last 1).FullName | Select-Object -First 10 Subject, Identity | Format-List
+```
+
+You want the whole value including the backslash:
+
+```
+Identity : c14401cf-aa9a-465b-cfd5-08d0f0ca37c5\4c2ca98e-94ea-db3a-7eb8-3b63657d4db7
+```
+
+**Choose an innocuous message.** Any message proves the same technical point,
+so there is no reason to pull HR, medical or departure correspondence onto
+disk. Pick something routine.
 
 ### 8. Look inside a message
 
@@ -117,6 +146,20 @@ payslip on its own from a payslip with something else attached.
 
 ### 9. Release test — dry run first
 
+> ### ⚠️ The queue contains production mail
+>
+> Confirmed 21 Oct 2026: step 7 returned 100 messages from real staff to real
+> personal addresses, including HR, medical and audit correspondence. This is
+> **not** a sandbox with synthetic data.
+>
+> Releasing here delivers a genuine email to a real external recipient that a
+> DLP policy deliberately held back. **Do not run this step without explicit
+> sign-off from the tenant owner and a specific nominated message** — ideally
+> one a reviewer had already approved for release, so the outcome is what would
+> have happened anyway and only the trigger differs.
+>
+> Steps 1 to 8 are read-only and unaffected.
+
 Sends nothing:
 
 ```powershell
@@ -128,10 +171,6 @@ Then for real — asks you to type `RELEASE`:
 ```powershell
 .\05-Test-Release.ps1 -Identity "<guid1\guid2>" -Execute
 ```
-
-Pick the message deliberately. Ideally one a reviewer had already decided should
-be released, so the outcome is what would have happened anyway and only the
-trigger differs.
 
 ---
 
