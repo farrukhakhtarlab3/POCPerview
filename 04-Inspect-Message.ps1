@@ -145,8 +145,20 @@ if ($att.Count -gt 0) {
     foreach ($t in ($att.ContentTypes | Select-Object -First 10)) { Write-Info "  $t" }
 }
 else {
-    Write-Warn2 'No attachment filenames parsed. The message may have none,'
-    Write-Warn2 'or they are encoded in a form this simple parser missed.'
+    Write-Warn2 'No attachment filenames parsed. The message may have none.'
+}
+
+if ($att.IsTnef) {
+    Write-Host ''
+    Write-Bad 'TNEF encapsulation detected (winmail.dat / application/ms-tnef).'
+    Write-Info 'Outlook sent this in RTF format, which bundles EVERY attachment'
+    Write-Info 'into one opaque winmail.dat. The real filenames and content are'
+    Write-Info 'inside that blob and are NOT visible here.'
+    Write-Info ''
+    Write-Info 'A message can therefore look like a single attachment while'
+    Write-Info 'carrying several - exactly the case the classifier must catch.'
+    Write-Info 'Decoding needs a TNEF parser, or Exchange can be configured not'
+    Write-Info 'to send TNEF to external recipients.'
 }
 
 if (-not $NoSave) {
@@ -159,11 +171,24 @@ if (-not $NoSave) {
 }
 
 Write-Step 'What this tells us'
-if ($att.Count -gt 1) {
-    Write-Ok "$($att.Count) attachments detected - the classifier CAN tell a lone payslip"
-    Write-Ok 'from a payslip bundled with something else. That is the case that matters.'
+Write-Ok 'Export works - the message body is retrievable under the app identity.'
+
+if ($att.IsTnef) {
+    Write-Bad 'Attachment visibility NOT established for this message.'
+    Write-Info 'winmail.dat is a container, not a document. We can see that something'
+    Write-Info 'is attached, but not what or how many. Do not report this as proof'
+    Write-Info 'that the classifier can distinguish bundled attachments.'
+    Write-Info ''
+    Write-Info 'Worth establishing how common TNEF is across the queue before'
+    Write-Info 'designing around attachment inspection.'
+}
+elseif ($att.Count -gt 1) {
+    Write-Ok "$($att.Count) distinct attachments named - the classifier can tell a lone"
+    Write-Ok 'document from one bundled with others. That is the case that matters.'
 }
 elseif ($att.Count -eq 1) {
-    Write-Ok 'Single attachment detected and named. Content inspection works.'
+    Write-Ok 'One attachment, named and visible. Content inspection works for this message.'
 }
-Write-Info 'Next: .\05-Test-Release.ps1 - the one that changes something.'
+else {
+    Write-Info 'No attachments on this message. Try one that has some.'
+}

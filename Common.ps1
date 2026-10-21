@@ -77,27 +77,33 @@ function Disconnect-Quarantine {
 
 function Get-AttachmentsFromEml {
     <#
-        .SYNOPSIS Pull attachment filenames and types out of a raw .eml.
+        .SYNOPSIS Identify attachments in a raw .eml.
         .DESCRIPTION
-            Deliberately regex-based over the MIME headers rather than using a
-            parser library or CDO COM objects, so it runs on a locked-down VDI
-            with no extra dependencies. Good enough to answer the question that
-            matters: what is attached, and how many.
+            Regex over the MIME headers rather than a parser library or CDO COM
+            objects, so it runs on a locked-down VDI with no dependencies.
+
+            Only matches filename= on a Content-Disposition line. An earlier
+            version also matched bare name= anywhere, which produced false
+            positives from sensitivity-label headers - reporting values like
+            "Internal" and "General" as if they were files.
+
+            Also detects TNEF. When Outlook sends in RTF format every real
+            attachment is bundled into a single opaque winmail.dat, so the
+            filenames and content inside it are NOT visible here. That matters:
+            a message can look like one attachment while carrying several.
     #>
     param([Parameter(Mandatory = $true)][string]$EmlText)
 
-    $results = @()
+    $names = @()
 
-    # filename= / filename*= on Content-Disposition, and name= on Content-Type
-    $patterns = @(
-        'filename\*?=(?:"([^"]+)"|([^;\r\n]+))',
-        '[^a-zA-Z]name\*?=(?:"([^"]+)"|([^;\r\n]+))'
-    )
-    foreach ($p in $patterns) {
-        foreach ($m in [regex]::Matches($EmlText, $p, 'IgnoreCase')) {
-            $v = if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[2].Value }
+    # Content-Disposition lines only. Tolerates a fold before filename=.
+    $dispPattern = 'Content-Disposition:[^\r\n]*(?:\r?\n[ \t][^\r\n]*)*'
+    foreach ($d in [regex]::Matches($EmlText, $dispPattern, 'IgnoreCase')) {
+        $fn = [regex]::Match($d.Value, 'filename\*?=(?:"([^"]+)"|([^;\r\n]+))', 'IgnoreCase')
+        if ($fn.Success) {
+            $v = if ($fn.Groups[1].Success) { $fn.Groups[1].Value } else { $fn.Groups[2].Value }
             $v = $v.Trim().Trim('"')
-            if ($v) { $results += $v }
+            if ($v) { $names += $v }
         }
     }
 
@@ -106,9 +112,17 @@ function Get-AttachmentsFromEml {
         $types += $m.Groups[1].Value.Trim()
     }
 
+    $unique = @($names | Select-Object -Unique)
+    $uTypes = @($types | Select-Object -Unique)
+
+    $isTnef = ($uTypes -match 'ms-tnef') -or ($unique -contains 'winmail.dat')
+
     [pscustomobject]@{
-        FileNames    = ($results | Select-Object -Unique)
-        ContentTypes = ($types | Select-Object -Unique)
-        Count        = @($results | Select-Object -Unique).Count
+        FileNames    = $unique
+        ContentTypes = $uTypes
+        Count        = $unique.Count
+        IsTnef       = [bool]$isTnef
+        # True only when we can actually enumerate the real attachments.
+        ContentVisible = (-not $isTnef)
     }
 }
