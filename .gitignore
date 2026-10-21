@@ -1,0 +1,14 @@
+# THIS REPOSITORY IS PUBLIC.
+# Nothing exported from the tenant may ever be committed.
+
+out/
+*.eml
+*.msg
+*.cer
+*.pfx
+*.p12
+*.key
+
+# Local notes / anything scratch
+scratch/
+*.local.ps1
