@@ -1,5 +1,7 @@
 # Quarantine Triage POC
 
+> **Just want the commands?** → **[STEPS.md](STEPS.md)** — copy-paste run sheet for the VDI.
+
 Technical feasibility test for the email quarantine support agent.
 
 **The question:** can a script read Microsoft Defender's outbound DLP quarantine,
