@@ -11,6 +11,23 @@ $cert = New-SelfSignedCertificate -Subject "CN=QuarantineAgentPOC" -CertStoreLoc
 $cert.PrivateKey
 
 
+$desktop = [Environment]::GetFolderPath('Desktop')
+
+
+$desktop
+
+
+$cert | Export-Certificate -FilePath "$desktop\QuarantineAgentPOC.cer"
+
+
+dir "$desktop\QuarantineAgentPOC.cer"
+
+//if not correct
+$cert | Export-Certificate -FilePath "$env:USERPROFILE\QuarantineAgentPOC.cer"
+
+$cert.Thumbprint
+
+
 $cert | Export-Certificate -FilePath "$env:USERPROFILE\Desktop\QuarantineAgentPOC.cer"
 
 
