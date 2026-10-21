@@ -146,6 +146,60 @@ from `out/`.
 
 ---
 
+## Useful commands
+
+### Duplicate certificates
+
+Several certificates with the same subject accumulate easily across attempts.
+Only the one uploaded to the app registration authenticates, and the scripts
+pick the newest — so a stale duplicate can cause a confusing failure later.
+
+```powershell
+.\99-Cert-Cleanup.ps1
+```
+
+Dry run. To apply, keeping the thumbprint that `02-Test-Connection.ps1` reported:
+
+```powershell
+.\99-Cert-Cleanup.ps1 -KeepThumbprint "<thumbprint>" -Execute
+```
+
+### List your certificates by hand
+
+```powershell
+Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq 'CN=QuarantineAgentPOC' } | Select-Object Thumbprint, NotBefore, NotAfter
+```
+
+### Check a certificate is CSP and not CNG
+
+Empty output means CNG, which Exchange app-only auth rejects.
+
+```powershell
+(Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq 'CN=QuarantineAgentPOC' } | Select-Object -First 1).PrivateKey
+```
+
+### Drop the Exchange session
+
+Useful if a connection goes stale mid-session.
+
+```powershell
+Disconnect-ExchangeOnline -Confirm:$false
+```
+
+### Check the current connection
+
+```powershell
+Get-ConnectionInformation | Select-Object Organization, UserPrincipalName, State
+```
+
+### Confirm a release actually took effect
+
+```powershell
+Get-QuarantineMessage -Identity "<guid1\guid2>" | Select-Object Subject, ReleaseStatus
+```
+
+---
+
 ## If something fails
 
 | Symptom | Cause |
