@@ -154,14 +154,24 @@ Several certificates with the same subject accumulate easily across attempts.
 Only the one uploaded to the app registration authenticates, and the scripts
 pick the newest — so a stale duplicate can cause a confusing failure later.
 
+See what it would do — dry run, removes nothing:
+
 ```powershell
 .\99-Cert-Cleanup.ps1
 ```
 
-Dry run. To apply, keeping the thumbprint that `02-Test-Connection.ps1` reported:
+Apply it. Keeps the newest certificate, which is normally the one that works:
 
 ```powershell
-.\99-Cert-Cleanup.ps1 -KeepThumbprint "<thumbprint>" -Execute
+.\99-Cert-Cleanup.ps1 -Execute
+```
+
+Only pass a thumbprint if the newest is *not* the one uploaded to the app
+registration. `02-Test-Connection.ps1` prints whichever one it authenticated
+with:
+
+```powershell
+.\99-Cert-Cleanup.ps1 -KeepThumbprint "<thumbprint from 02>" -Execute
 ```
 
 ### List your certificates by hand
