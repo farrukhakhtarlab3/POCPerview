@@ -63,27 +63,76 @@ catch {
 
 # ---------------------------------------------------------------- content
 Write-Step 'Exporting content (the decisive read test)'
-try {
-    $e = Export-QuarantineMessage -Identity $Identity `
-            -ReasonForExport 'LAB3 quarantine triage POC - automated content inspection' `
-            -ErrorAction Stop
-    Write-Ok 'Export succeeded.'
-}
-catch {
-    Write-Bad $_.Exception.Message
-    Write-Host ''
-    Write-Info 'If this fails but Get-QuarantineMessage works, the role group is missing'
-    Write-Info 'Export-QuarantineMessage. Without it the classifier is blind to attachments.'
-    return
+
+# Export-QuarantineMessage has two overlapping parameter sets, and which one
+# PowerShell resolves varies by module version. Supplying -Identity alone can be
+# ambiguous, producing a confusing "missing mandatory parameters: CompressOutput"
+# error that looks like a permissions problem but is not. Try each documented
+# form until one works.
+$reason = 'LAB3 quarantine triage POC - automated content inspection'
+$e = $null
+$usedForm = $null
+$compressed = $false
+
+$attempts = @(
+    @{ Name = '-Identity';
+       Run  = { Export-QuarantineMessage -Identity $Identity -ReasonForExport $reason -ErrorAction Stop } },
+
+    @{ Name = '-Identities + -Identity 000';   # documented bulk form; Identity value is ignored
+       Run  = { Export-QuarantineMessage -Identities $Identity -Identity '000' -ReasonForExport $reason -ErrorAction Stop } },
+
+    @{ Name = '-Identity -CompressOutput';     # returns a .zip rather than raw .eml
+       Run  = { Export-QuarantineMessage -Identity $Identity -CompressOutput -ReasonForExport $reason -ErrorAction Stop }
+       Zip  = $true }
+)
+
+foreach ($a in $attempts) {
+    try {
+        $e = & $a.Run
+        if ($e -and $e.Eml) {
+            $usedForm = $a.Name
+            $compressed = [bool]$a.Zip
+            Write-Ok "Export succeeded using $usedForm"
+            break
+        }
+        $e = $null
+    }
+    catch {
+        Write-Info ("{0,-28} failed: {1}" -f $a.Name, $_.Exception.Message)
+        $e = $null
+    }
 }
 
-if (-not $e.Eml) {
-    Write-Bad 'Export returned no Eml content.'
+if (-not $e) {
+    Write-Bad 'All export forms failed.'
+    Write-Host ''
+    Write-Info 'Step 02 confirmed the cmdlet is available, so this is a syntax or'
+    Write-Info 'parameter-set problem rather than a missing permission. Check what'
+    Write-Info 'your module version expects:'
+    Write-Info '  (Get-Command Export-QuarantineMessage).ParameterSets | Format-List'
     return
 }
 
 $bytes = [Convert]::FromBase64String($e.Eml)
-Write-Ok ("Message size: {0:N0} bytes" -f $bytes.Length)
+Write-Ok ("Payload: {0:N0} bytes" -f $bytes.Length)
+
+if ($compressed) {
+    Write-Info 'Output is a .zip - extracting the .eml inside it.'
+    $tmpZip = Join-Path $env:TEMP ("qexport-{0}.zip" -f ([guid]::NewGuid().ToString('N')))
+    $tmpDir = Join-Path $env:TEMP ("qexport-{0}" -f ([guid]::NewGuid().ToString('N')))
+    try {
+        [IO.File]::WriteAllBytes($tmpZip, $bytes)
+        Expand-Archive -Path $tmpZip -DestinationPath $tmpDir -Force
+        $inner = Get-ChildItem $tmpDir -Recurse -Filter *.eml | Select-Object -First 1
+        if (-not $inner) { Write-Bad 'No .eml found inside the archive.'; return }
+        $bytes = [IO.File]::ReadAllBytes($inner.FullName)
+        Write-Ok ("Extracted {0} ({1:N0} bytes)" -f $inner.Name, $bytes.Length)
+    }
+    finally {
+        Remove-Item $tmpZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 
 $text = [Text.Encoding]::ASCII.GetString($bytes)
 $att = Get-AttachmentsFromEml -EmlText $text
