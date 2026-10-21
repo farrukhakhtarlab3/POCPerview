@@ -13,6 +13,27 @@ Search → `powershell` → **Windows PowerShell**. No admin needed.
 
 ### 2. Get the code
 
+**No git on the VDI?** Use this — downloads and extracts the ZIP, no git or
+browser required.
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+```
+```powershell
+Invoke-WebRequest -Uri "https://github.com/farrukhakhtarlab3/POCPerview/archive/refs/heads/main.zip" -OutFile "$env:USERPROFILE\POCPerview.zip"
+```
+```powershell
+Expand-Archive -Path "$env:USERPROFILE\POCPerview.zip" -DestinationPath $env:USERPROFILE -Force
+```
+```powershell
+cd "$env:USERPROFILE\POCPerview-main"
+```
+
+The folder is `POCPerview-main` — GitHub appends the branch name to ZIP
+downloads.
+
+**If git is available**, this works too:
+
 ```powershell
 cd $env:USERPROFILE
 ```
@@ -23,10 +44,15 @@ git clone https://github.com/farrukhakhtarlab3/POCPerview.git
 cd POCPerview
 ```
 
-No git on the VDI? Download the ZIP from GitHub and extract it instead.
+### 3. Unblock and allow scripts to run
 
-### 3. Allow scripts to run
+Files downloaded from the internet carry a "mark of the web" flag that blocks
+execution even when the execution policy allows it. Skip this and the scripts
+fail with a security warning.
 
+```powershell
+Get-ChildItem -Recurse | Unblock-File
+```
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 ```
