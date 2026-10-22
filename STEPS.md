@@ -185,6 +185,82 @@ from `out/`.
 
 ---
 
+# Use case 2 — Insider Risk alerts
+
+Separate app registration, separate certificate, different API. Nothing is
+shared with the quarantine side: that app has no Graph access, this one has no
+Exchange access.
+
+Needs **Microsoft Graph → `SecurityAlert.ReadWrite.All`** (Application, admin
+consent) on its own registration.
+
+### 10. Certificate for the IRM app
+
+```powershell
+.\10-New-IrmCertificate.ps1
+```
+
+Send the `.cer` to the tenant admin, then put the client ID into `config.ps1`
+as `$script:IrmAppId`.
+
+### 11. Connect and find out how IRM alerts are identified
+
+```powershell
+.\11-Discover-AlertSources.ps1
+```
+
+**Run this before anything else on the IRM side.** Microsoft's published
+`serviceSource` enum lists `dataLossPrevention` but has **no value for Insider
+Risk Management**. The Defender portal filters by it, so the alerts exist — how
+to select them through the API is undocumented.
+
+Rather than guessing a filter value, this enumerates every alert the identity
+can see and reports the distinct `serviceSource`, `detectionSource` and
+`productName` values present. Whatever carries the IRM alerts shows up there.
+
+Read-only.
+
+### 12. List the alerts
+
+Using whatever step 11 told you:
+
+```powershell
+.\12-Get-IrmAlerts.ps1 -ServiceSource "<value from step 11>"
+```
+
+Or without a server-side filter, narrowing locally by name:
+
+```powershell
+.\12-Get-IrmAlerts.ps1
+```
+
+### 13. Assign and update
+
+The IRM equivalent of the release test — proving the identity can write, not
+just read. Far lower risk: nothing is sent and nothing leaves the tenant, these
+are fields on the alert record.
+
+Dry run:
+
+```powershell
+.\13-Update-IrmAlert.ps1 -Id "<id>" -AssignTo "analyst@woodside.com" -NewStatus inProgress
+```
+
+Apply:
+
+```powershell
+.\13-Update-IrmAlert.ps1 -Id "<id>" -AssignTo "analyst@woodside.com" -NewStatus inProgress -Execute
+```
+
+It re-reads the alert afterwards and confirms each field actually changed.
+
+> Status models differ between portals. Defender's `new` and `inProgress` both
+> appear as **Needs review** in Purview. `resolved` maps by classification, and
+> without one it defaults to **Dismissed**. Changes sync both ways within about
+> 30 minutes, so don't expect the Purview portal to update immediately.
+
+---
+
 ## Useful commands
 
 ### Duplicate certificates

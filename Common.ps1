@@ -75,6 +75,83 @@ function Disconnect-Quarantine {
     try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { }
 }
 
+function Get-IrmCertificate {
+    <#  .SYNOPSIS Find the IRM certificate (separate app registration). #>
+    $certs = @(Get-ChildItem Cert:\CurrentUser\My |
+        Where-Object { $_.Subject -eq $script:IrmCertSubject } |
+        Sort-Object NotBefore -Descending)
+    if ($certs.Count -eq 0) {
+        throw "No certificate found with subject '$($script:IrmCertSubject)'. Run 10-New-IrmCertificate.ps1 first."
+    }
+    if ($certs.Count -gt 1) {
+        Write-Warn2 "$($certs.Count) certificates match '$($script:IrmCertSubject)'. Using the newest."
+    }
+    return $certs[0]
+}
+
+function Connect-Irm {
+    <#
+        .SYNOPSIS Connect to Microsoft Graph as the IRM application.
+        .DESCRIPTION
+            A different app registration, a different certificate and a different
+            API from the quarantine side. Nothing is shared between them.
+    #>
+    [CmdletBinding()]
+    param([switch]$Quiet)
+
+    if (-not $script:IrmAppId) {
+        throw 'IrmAppId is not set in config.ps1. Add the client ID supplied by the tenant admin.'
+    }
+    if (-not (Get-Module -ListAvailable Microsoft.Graph.Authentication)) {
+        throw 'Microsoft.Graph.Authentication is not installed. Run 00-Install-Prereqs.ps1 first.'
+    }
+    Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
+
+    $existing = $null
+    try { $existing = Get-MgContext } catch { }
+    if ($existing -and $existing.ClientId -eq $script:IrmAppId) {
+        if (-not $Quiet) { Write-Info 'Reusing existing Graph session.' }
+        return
+    }
+
+    $cert = Get-IrmCertificate
+    if (-not $Quiet) {
+        Write-Info "AppId      : $script:IrmAppId"
+        Write-Info "Tenant     : $script:IrmTenantId"
+        Write-Info "Thumbprint : $($cert.Thumbprint)"
+    }
+
+    Connect-MgGraph -ClientId $script:IrmAppId `
+        -TenantId $script:IrmTenantId `
+        -Certificate $cert `
+        -NoWelcome -ErrorAction Stop
+}
+
+function Invoke-GraphGet {
+    <#  .SYNOPSIS GET from Graph, following @odata.nextLink. #>
+    param([Parameter(Mandatory=$true)][string]$Uri, [int]$MaxItems = 500)
+
+    $all = New-Object System.Collections.Generic.List[object]
+    $pages = 0
+    while ($Uri -and $all.Count -lt $MaxItems -and $pages -lt 50) {
+        $r = Invoke-MgGraphRequest -Method GET -Uri $Uri -OutputType PSObject -ErrorAction Stop
+        $v = $r.PSObject.Properties['value']
+        if ($v -and $v.Value) { foreach ($i in $v.Value) { [void]$all.Add($i) } }
+        $n = $r.PSObject.Properties['@odata.nextLink']
+        $Uri = if ($n) { $n.Value } else { $null }
+        $pages++
+    }
+    return $all
+}
+
+function Get-Prop {
+    param($Object, [string]$Name)
+    if ($null -eq $Object) { return $null }
+    $p = $Object.PSObject.Properties[$Name]
+    if ($null -eq $p) { return $null }
+    return $p.Value
+}
+
 function Get-AttachmentsFromEml {
     <#
         .SYNOPSIS Identify attachments in a raw .eml.
