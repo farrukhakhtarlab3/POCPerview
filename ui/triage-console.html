@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+  /* Equivalent of the Artifact host's reset, for standalone use. */
+  :root { color-scheme: light; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+<title>Data Security Triage Console</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: master-detail console. Queue left, evidence right, stacking at phone width. */
+:root{
+  --bg:#f4f6f8; --surface:#ffffff; --surface-2:#eef1f5; --line:#d6dce4;
+  --fg:#16202c; --fg-dim:#5b6878; --fg-faint:#8793a3;
+  --accent:#0f6f7a; --accent-soft:#d9eef0;
+  --ok:#1c7a4a; --ok-soft:#dcf0e5;
+  --warn:#9a6209; --warn-soft:#fbeed6;
+  --stop:#a32b28; --stop-soft:#fadedd;
+  --font-ui:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'Cascadia Code',monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#10151b; --surface:#19202a; --surface-2:#212a36; --line:#2e3a48;
+  --fg:#e5eaf0; --fg-dim:#9aa7b6; --fg-faint:#6f7d8d;
+  --accent:#4fc3cf; --accent-soft:#17323a;
+  --ok:#5fd394; --ok-soft:#16301f;
+  --warn:#e5b45c; --warn-soft:#332714;
+  --stop:#f08a86; --stop-soft:#361b1b;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#10151b; --surface:#19202a; --surface-2:#212a36; --line:#2e3a48;
+  --fg:#e5eaf0; --fg-dim:#9aa7b6; --fg-faint:#6f7d8d;
+  --accent:#4fc3cf; --accent-soft:#17323a;
+  --ok:#5fd394; --ok-soft:#16301f;
+  --warn:#e5b45c; --warn-soft:#332714;
+  --stop:#f08a86; --stop-soft:#361b1b;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-ui);line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0 40px;}
+.wrap{max-width:1240px;margin:0 auto}
+
+header{padding-block:22px 14px;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between}
+h1{font-size:21px;font-weight:700;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--fg-dim);font-size:12.5px;margin-top:3px}
+.envtag{font-family:var(--font-mono);font-size:11px;padding:4px 9px;border-radius:4px;
+  background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn);white-space:nowrap}
+
+/* tabs */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:16px;overflow-x:auto}
+.tab{appearance:none;background:none;border:0;border-bottom:2px solid transparent;color:var(--fg-dim);
+  font-family:inherit;font-size:13.5px;font-weight:600;padding:9px 14px;cursor:pointer;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:16px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:11px 13px;min-width:0}
+.stat .n{font-size:23px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
+.stat .l{font-size:11px;color:var(--fg-dim);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+.stat.ok .n{color:var(--ok)} .stat.warn .n{color:var(--warn)} .stat.stop .n{color:var(--stop)}
+
+/* split */
+.split{display:grid;grid-template-columns:minmax(0,400px) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:860px){.split{grid-template-columns:1fr}}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:7px;overflow:hidden;min-width:0}
+.panel-h{padding:10px 13px;border-bottom:1px solid var(--line);background:var(--surface-2);
+  font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--fg-dim);
+  display:flex;justify-content:space-between;gap:8px;align-items:center}
+
+/* queue */
+.q{list-style:none;margin:0;padding:0;max-height:560px;overflow-y:auto}
+.q li{border-bottom:1px solid var(--line)}
+.q li:last-child{border-bottom:0}
+.qbtn{width:100%;text-align:left;background:none;border:0;border-left:3px solid transparent;
+  padding:11px 13px;cursor:pointer;font-family:inherit;color:inherit;display:block;min-width:0}
+.qbtn:hover{background:var(--surface-2)}
+.qbtn[aria-current="true"]{background:var(--accent-soft);border-left-color:var(--accent)}
+.qbtn:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.qrow{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
+.qsub{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.qmeta{font-size:11.5px;color:var(--fg-dim);margin-top:3px;font-family:var(--font-mono);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* verdict chips */
+.chip{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:3px;white-space:nowrap;
+  text-transform:uppercase;letter-spacing:.05em;flex:none}
+.chip.release{background:var(--ok-soft);color:var(--ok)}
+.chip.retain{background:var(--stop-soft);color:var(--stop)}
+.chip.escalate{background:var(--warn-soft);color:var(--warn)}
+.chip.done{background:var(--surface-2);color:var(--fg-faint)}
+
+/* detail */
+.body{padding:14px 15px}
+.dh{font-size:16px;font-weight:700;margin:0 0 3px;text-wrap:balance}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 14px;font-size:12.5px;margin:12px 0}
+.kv dt{color:var(--fg-dim);white-space:nowrap}
+.kv dd{margin:0;font-family:var(--font-mono);font-size:12px;overflow-wrap:anywhere;min-width:0}
+
+.verdict{border:1px solid var(--line);border-left-width:3px;border-radius:5px;padding:11px 13px;margin:14px 0;background:var(--surface-2)}
+.verdict.release{border-left-color:var(--ok)}
+.verdict.retain{border-left-color:var(--stop)}
+.verdict.escalate{border-left-color:var(--warn)}
+.vtop{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:7px}
+.vconf{font-size:11.5px;color:var(--fg-dim);font-variant-numeric:tabular-nums}
+.vwhy{font-size:13px;margin:0}
+.vwhy b{font-weight:600}
+
+h3.sec{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--fg-dim);
+  margin:16px 0 7px;font-weight:600}
+
+/* attachments */
+.att{display:flex;flex-direction:column;gap:7px}
+.a{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:5px;padding:9px 11px;min-width:0}
+.a .ic{font-family:var(--font-mono);font-size:10px;font-weight:600;padding:3px 5px;border-radius:3px;
+  background:var(--surface-2);color:var(--fg-dim);flex:none;letter-spacing:.03em}
+.a .nm{font-family:var(--font-mono);font-size:12px;font-weight:500;overflow-wrap:anywhere}
+.a .cls{font-size:12px;color:var(--fg-dim);margin-top:2px}
+.a .cls b{color:var(--fg);font-weight:600}
+.a.unknown{border-style:dashed;border-color:var(--warn)}
+
+.note{font-size:12.5px;padding:9px 11px;border-radius:5px;margin:12px 0;display:flex;gap:8px;align-items:flex-start}
+.note.warn{background:var(--warn-soft);color:var(--warn)}
+.note b{font-weight:700}
+
+/* actions */
+.acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+button.act{appearance:none;font-family:inherit;font-size:13px;font-weight:600;padding:8px 14px;
+  border-radius:5px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer}
+button.act:hover{border-color:var(--accent)}
+button.act:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.act.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="dark"] button.act.primary,
+:root:not([data-theme="light"]) button.act.primary{color:#0b1116}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) button.act.primary{color:#fff}}
+select.assign{font-family:inherit;font-size:12.5px;padding:7px 9px;border-radius:5px;
+  border:1px solid var(--line);background:var(--surface);color:var(--fg);max-width:100%}
+.spacer{flex:1 1 auto;min-width:0}
+.applied{font-size:12.5px;color:var(--ok);font-weight:600}
+
+/* capability legend */
+.caps{margin-top:20px}
+.captable{width:100%;border-collapse:collapse;font-size:12.5px}
+.captable th,.captable td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+.captable th{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-dim);font-weight:600}
+.captable td:first-child{font-weight:600}
+.st{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:3px;white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
+.st.p{background:var(--ok-soft);color:var(--ok)}
+.st.u{background:var(--stop-soft);color:var(--stop)}
+.st.q{background:var(--warn-soft);color:var(--warn)}
+.capnote{font-size:12px;color:var(--fg-dim);margin-top:10px}
+.tblwrap{overflow-x:auto}
+footer{margin-top:26px;font-size:11.5px;color:var(--fg-faint);border-top:1px solid var(--line);padding-top:12px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>Data Security Triage Console</h1>
+    <div class="sub">Agent-assisted review of quarantined mail and insider risk alerts</div>
+  </div>
+  <div class="envtag">PROTOTYPE &middot; synthetic data</div>
+</header>
+
+<div class="tabs" role="tablist">
+  <button class="tab" role="tab" id="tab-q" aria-selected="true" aria-controls="p-q">Quarantine release</button>
+  <button class="tab" role="tab" id="tab-i" aria-selected="false" aria-controls="p-i">Insider risk alerts</button>
+  <button class="tab" role="tab" id="tab-c" aria-selected="false" aria-controls="p-c">Capability status</button>
+</div>
+
+<section id="p-q" role="tabpanel" aria-labelledby="tab-q">
+  <div class="stats" id="q-stats"></div>
+  <div class="split">
+    <div class="panel">
+      <div class="panel-h"><span>Outbound DLP quarantine</span><span id="q-count"></span></div>
+      <ul class="q" id="q-list"></ul>
+    </div>
+    <div class="panel"><div class="panel-h">Evidence &amp; recommendation</div><div class="body" id="q-detail"></div></div>
+  </div>
+</section>
+
+<section id="p-i" role="tabpanel" aria-labelledby="tab-i" hidden>
+  <div class="stats" id="i-stats"></div>
+  <div class="split">
+    <div class="panel">
+      <div class="panel-h"><span>Insider risk alerts</span><span id="i-count"></span></div>
+      <ul class="q" id="i-list"></ul>
+    </div>
+    <div class="panel"><div class="panel-h">Evidence &amp; recommendation</div><div class="body" id="i-detail"></div></div>
+  </div>
+</section>
+
+<section id="p-c" role="tabpanel" aria-labelledby="tab-c" hidden>
+  <div class="panel caps" style="margin-top:0">
+    <div class="panel-h">What is proven, and what is not</div>
+    <div class="body">
+      <p style="font-size:13px;margin:0 0 12px;color:var(--fg-dim)">
+        Tested 21 October 2026 against the live tenant using an application identity
+        and a custom Exchange role group scoped to quarantine cmdlets only.
+      </p>
+      <div class="tblwrap">
+      <table class="captable">
+        <thead><tr><th>Capability</th><th>Status</th><th>Evidence / gap</th></tr></thead>
+        <tbody id="cap-rows"></tbody>
+      </table>
+      </div>
+      <p class="capnote">
+        Everything marked unproven is a feasibility question, not an implementation task.
+        Each needs a short test before it is designed around.
+      </p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  Prototype interface. All names, addresses and documents shown are invented for demonstration.
+  No tenant data appears on this page.
+</footer>
+</div>
+
+<script>
+const QUEUE=[
+ {id:'q1',subject:'Payslip – September 2026',from:'a.whitfield@contoso.com',to:'awhitfield88@gmail.com',
+  when:'21 Oct 18:42',policy:'EXO:Quarantine:E2P:1',verdict:'release',conf:94,
+  why:'Single attachment, classified as a <b>payroll remittance</b> from a recognised payroll source. Sender is emailing their own registered personal address. Matches 142 previously approved releases of the same document type.',
+  atts:[{n:'payslip-sep-2026.pdf',t:'PDF',c:'Payroll remittance',conf:97}]},
+
+ {id:'q2',subject:'Payslip and a couple of other bits',from:'a.whitfield@contoso.com',to:'awhitfield88@gmail.com',
+  when:'21 Oct 17:10',policy:'EXO:Quarantine:E2P:1',verdict:'escalate',conf:88,
+  why:'Payslip matches the approved pattern, but the message carries <b>two additional documents</b> that do not. One is a commercial contract. An allow-list keyed on the payslip alone would release all three.',
+  atts:[{n:'payslip-sep-2026.pdf',t:'PDF',c:'Payroll remittance',conf:96},
+        {n:'MSA-Northfield-exec.pdf',t:'PDF',c:'Commercial contract',conf:91},
+        {n:'rates-2027-draft.xlsx',t:'XLSX',c:'Pricing schedule',conf:84}]},
+
+ {id:'q3',subject:'Re: platform roadmap – draft for review',from:'d.okafor@contoso.com',to:'dokafor.personal@outlook.com',
+  when:'21 Oct 15:28',policy:'EXO:Quarantine:E2P:3',verdict:'retain',conf:96,
+  why:'Internal product documentation marked <b>Confidential</b>, sent to a personal address with no business justification. No comparable release has previously been approved.',
+  atts:[{n:'platform-roadmap-2027.pptx',t:'PPTX',c:'Internal strategy document',conf:93}]},
+
+ {id:'q4',subject:'Documents as discussed',from:'s.marchetti@contoso.com',to:'marchetti.s@bigpond.net.au',
+  when:'21 Oct 14:05',policy:'EXO:Quarantine:E2P:1',verdict:'escalate',conf:41,
+  why:'Message uses <b>TNEF encapsulation</b>. Every attachment is bundled inside a single opaque <code>winmail.dat</code>, so neither filenames nor content can be read. The agent cannot tell whether this is one document or six.',
+  tnef:true,
+  atts:[{n:'winmail.dat',t:'TNEF',c:'Cannot inspect – container',conf:null}]},
+
+ {id:'q5',subject:'Expense claim – Q3 travel',from:'r.bianchi@contoso.com',to:'rbianchi.home@iinet.net.au',
+  when:'21 Oct 11:19',policy:'EXO:Quarantine:E2P:1',verdict:'release',conf:90,
+  why:'Single attachment classified as an <b>expense claim form</b>. Sender to own registered personal address. Routine pattern, 38 prior approvals.',
+  atts:[{n:'expenses-q3.pdf',t:'PDF',c:'Expense claim form',conf:95}]}
+];
+
+const IRM=[
+ {id:'i1',subject:'Bulk download preceding resignation',user:'d.okafor@contoso.com',score:84,sev:'High',
+  when:'21 Oct 16:02',policy:'Departing employee data theft',verdict:'escalate',conf:91,
+  why:'<b>312 files</b> copied from a restricted SharePoint library within 48 hours of resignation being recorded in HR. Volume is 14x this user’s rolling 90-day average.',
+  acts:['312 files downloaded – Engineering/Restricted','Resignation recorded in HR – 19 Oct','4 files copied to removable media','Archive uploaded to personal cloud storage']},
+
+ {id:'i2',subject:'Payroll document to personal address',user:'a.whitfield@contoso.com',score:22,sev:'Low',
+  when:'21 Oct 18:42',policy:'General data leaks',verdict:'release',conf:93,
+  why:'Single payroll remittance to the user’s own registered personal address. Correlates with quarantine item <code>q1</code>. Matches an approved exemption scenario.',
+  acts:['1 attachment emailed externally','Recipient matches registered personal address','No other activity in 30 days']},
+
+ {id:'i3',subject:'Design files copied to removable media',user:'s.marchetti@contoso.com',score:67,sev:'Medium',
+  when:'21 Oct 13:47',policy:'Data leaks by priority users',verdict:'escalate',conf:72,
+  why:'CAD files copied to USB outside working hours. User is on a priority watchlist. Plausible operational justification exists — site work is scheduled — so <b>needs human confirmation</b> rather than an automated verdict.',
+  acts:['22 CAD files to removable media','Activity at 21:14, outside pattern','User on priority watchlist','Site deployment scheduled 23 Oct']},
+
+ {id:'i4',subject:'Repeated access to unrelated HR records',user:'j.lindqvist@contoso.com',score:58,sev:'Medium',
+  when:'20 Oct 09:31',policy:'General security policy violations',verdict:'escalate',conf:69,
+  why:'Accessed <b>47 personnel records</b> outside their business unit over four days. No case or ticket references these individuals.',
+  acts:['47 records viewed across 4 days','No matching case reference','Access outside assigned business unit']}
+];
+
+const CAPS=[
+ ['Authenticate as an application','p','Certificate-based app-only auth against Exchange Online. Confirmed.'],
+ ['Least-privilege role','p','Custom Exchange role group scoped to quarantine cmdlets. No Exchange Administrator required.'],
+ ['Retrieve quarantined mail','p','100 messages returned across a 16-day window.'],
+ ['Read message headers','p','Authentication results including SPF, DKIM and DMARC.'],
+ ['Export message content','p','Works via the compressed-output form only; the other parameter sets fail.'],
+ ['Release a message','p','Confirmed under the application identity. This was the principal unknown.'],
+ ['Read attachment filenames','q','Works on standard MIME. Blocked where TNEF encapsulation is used.'],
+ ['Classify document type','u','Not built. Requires extraction then classification, and a decision on whether content may leave the tenant.'],
+ ['Retrieve insider risk alerts','u','Alerts surface through the same alerts_v2 API, but no serviceSource value for Insider Risk is published. Untested.'],
+ ['Update and assign IRM alerts','u','status and assignedTo exist on the alert resource. Needs a second permission: SecurityAlert.ReadWrite.All.']
+];
+
+const PEOPLE=['Unassigned','Priya Raman — Data Security','Tom Alderton — SecOps','Nina Castellano — HR Partner','Escalate to manager'];
+const state={};
+
+function chip(v){return '<span class="chip '+v+'">'+v+'</span>';}
+
+function renderQueue(items,listEl,countEl,sel,onPick){
+  countEl.textContent=items.length+' items';
+  listEl.innerHTML=items.map(function(it){
+    var done=state[it.id]&&state[it.id].applied;
+    return '<li><button class="qbtn" data-id="'+it.id+'" aria-current="'+(it.id===sel)+'">'+
+      '<div class="qrow"><span class="qsub">'+it.subject+'</span>'+
+      (done?chip('done'):chip(it.verdict))+'</div>'+
+      '<div class="qmeta">'+(it.to||it.user)+' &middot; '+it.when+'</div></button></li>';
+  }).join('');
+  listEl.querySelectorAll('.qbtn').forEach(function(b){
+    b.addEventListener('click',function(){onPick(b.dataset.id);});
+  });
+}
+
+function actionsHtml(it){
+  var s=state[it.id]||{};
+  if(s.applied){
+    return '<div class="acts"><span class="applied">&#10003; '+s.applied+'</span>'+
+      '<span class="spacer"></span><button class="act" data-undo="'+it.id+'">Undo</button></div>';
+  }
+  var opts=PEOPLE.map(function(p,i){return '<option'+(i===0?' selected':'')+'>'+p+'</option>';}).join('');
+  var primary=it.verdict==='release'?'Approve release':(it.verdict==='retain'?'Confirm retain':'Escalate for review');
+  return '<div class="acts">'+
+    '<button class="act primary" data-apply="'+it.id+'" data-label="'+primary+'">'+primary+'</button>'+
+    '<button class="act" data-apply="'+it.id+'" data-label="Overridden by analyst">Override</button>'+
+    '<span class="spacer"></span>'+
+    '<select class="assign" aria-label="Assign to"><option disabled selected>Assign to…</option>'+opts+'</select>'+
+    '</div>';
+}
+
+function detailQ(it){
+  var atts=it.atts.map(function(a){
+    return '<div class="a'+(a.conf===null?' unknown':'')+'"><span class="ic">'+a.t+'</span>'+
+      '<div style="min-width:0"><div class="nm">'+a.n+'</div>'+
+      '<div class="cls"><b>'+a.c+'</b>'+(a.conf!==null?' &middot; '+a.conf+'% confidence':'')+'</div></div></div>';
+  }).join('');
+  return '<h2 class="dh">'+it.subject+'</h2>'+
+    '<dl class="kv"><dt>From</dt><dd>'+it.from+'</dd><dt>To</dt><dd>'+it.to+'</dd>'+
+    '<dt>Received</dt><dd>'+it.when+'</dd><dt>Policy</dt><dd>'+it.policy+'</dd></dl>'+
+    '<div class="verdict '+it.verdict+'"><div class="vtop">'+chip(it.verdict)+
+    '<span class="vconf">'+it.conf+'% confidence</span></div><p class="vwhy">'+it.why+'</p></div>'+
+    (it.tnef?'<div class="note warn"><span>&#9888;</span><span><b>Content not inspectable.</b> '+
+      'A TNEF message can present as one attachment while carrying several. Decoding needs a TNEF parser, '+
+      'or Exchange configured not to send TNEF to external recipients.</span></div>':'')+
+    '<h3 class="sec">Attachments &amp; classification</h3><div class="att">'+atts+'</div>'+
+    actionsHtml(it);
+}
+
+function detailI(it){
+  var acts=it.acts.map(function(a){return '<div class="a"><span class="ic">EVT</span><div style="min-width:0"><div class="cls">'+a+'</div></div></div>';}).join('');
+  return '<h2 class="dh">'+it.subject+'</h2>'+
+    '<dl class="kv"><dt>User</dt><dd>'+it.user+'</dd><dt>Risk score</dt><dd>'+it.score+' &middot; '+it.sev+'</dd>'+
+    '<dt>Triggered</dt><dd>'+it.when+'</dd><dt>Policy</dt><dd>'+it.policy+'</dd></dl>'+
+    '<div class="verdict '+it.verdict+'"><div class="vtop">'+chip(it.verdict)+
+    '<span class="vconf">'+it.conf+'% confidence</span></div><p class="vwhy">'+it.why+'</p></div>'+
+    '<h3 class="sec">Contributing activity</h3><div class="att">'+acts+'</div>'+
+    actionsHtml(it);
+}
+
+function stats(items,el,kind){
+  var r=items.filter(function(i){return i.verdict==='release';}).length;
+  var e=items.filter(function(i){return i.verdict==='escalate';}).length;
+  var t=items.filter(function(i){return i.verdict==='retain';}).length;
+  var done=items.filter(function(i){return state[i.id]&&state[i.id].applied;}).length;
+  el.innerHTML=
+    '<div class="stat"><div class="n">'+items.length+'</div><div class="l">'+(kind==='q'?'In queue':'Open alerts')+'</div></div>'+
+    '<div class="stat ok"><div class="n">'+r+'</div><div class="l">'+(kind==='q'?'Release':'Low risk')+'</div></div>'+
+    '<div class="stat warn"><div class="n">'+e+'</div><div class="l">Needs a human</div></div>'+
+    (kind==='q'?'<div class="stat stop"><div class="n">'+t+'</div><div class="l">Retain</div></div>':'')+
+    '<div class="stat"><div class="n">'+done+'</div><div class="l">Actioned</div></div>';
+}
+
+var selQ=QUEUE[0].id, selI=IRM[0].id;
+
+function wireDetail(container,it,redraw){
+  container.querySelectorAll('[data-apply]').forEach(function(b){
+    b.addEventListener('click',function(){
+      state[it.id]={applied:b.dataset.label};
+      redraw();
+    });
+  });
+  var u=container.querySelector('[data-undo]');
+  if(u) u.addEventListener('click',function(){delete state[it.id];redraw();});
+}
+
+function drawQ(){
+  var it=QUEUE.filter(function(x){return x.id===selQ;})[0];
+  stats(QUEUE,document.getElementById('q-stats'),'q');
+  renderQueue(QUEUE,document.getElementById('q-list'),document.getElementById('q-count'),selQ,function(id){selQ=id;drawQ();});
+  var d=document.getElementById('q-detail');
+  d.innerHTML=detailQ(it);
+  wireDetail(d,it,drawQ);
+}
+function drawI(){
+  var it=IRM.filter(function(x){return x.id===selI;})[0];
+  stats(IRM,document.getElementById('i-stats'),'i');
+  renderQueue(IRM,document.getElementById('i-list'),document.getElementById('i-count'),selI,function(id){selI=id;drawI();});
+  var d=document.getElementById('i-detail');
+  d.innerHTML=detailI(it);
+  wireDetail(d,it,drawI);
+}
+
+document.getElementById('cap-rows').innerHTML=CAPS.map(function(c){
+  var label=c[1]==='p'?'Proven':(c[1]==='q'?'Partial':'Unproven');
+  return '<tr><td>'+c[0]+'</td><td><span class="st '+c[1]+'">'+label+'</span></td><td style="color:var(--fg-dim)">'+c[2]+'</td></tr>';
+}).join('');
+
+var panels={'tab-q':'p-q','tab-i':'p-i','tab-c':'p-c'};
+document.querySelectorAll('.tab').forEach(function(t){
+  t.addEventListener('click',function(){
+    document.querySelectorAll('.tab').forEach(function(x){x.setAttribute('aria-selected',String(x===t));});
+    Object.keys(panels).forEach(function(k){document.getElementById(panels[k]).hidden=(k!==t.id);});
+  });
+});
+
+drawQ();drawI();
+</script>
+
+</body>
+</html>

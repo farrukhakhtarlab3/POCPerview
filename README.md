@@ -217,16 +217,33 @@ the deliverable:
 ## Files
 
 ```
-config.ps1                      AppId, tenant domain, cert subject
+config.ps1                      Both app registrations, tenant, cert subjects
 Common.ps1                      Shared helpers (not run directly)
-00-Install-Prereqs.ps1          Module install
+00-Install-Prereqs.ps1          Module install (Exchange + Graph)
+
+  Use case 1 — quarantine release
 01-New-Certificate.ps1          Certificate creation and export
 02-Test-Connection.ps1          Auth + cmdlet availability
 03-Get-QuarantineMessages.ps1   List the queue
 04-Inspect-Message.ps1          Read inside one message
 05-Test-Release.ps1             Release test (gated)
+
+  Use case 2 — insider risk alerts
+10-New-IrmCertificate.ps1       Second certificate
+11-Discover-AlertSources.ps1    Find how IRM alerts are identified
+12-Get-IrmAlerts.ps1            List alerts
+13-Update-IrmAlert.ps1          Assign + set status (gated)
+
+99-Cert-Cleanup.ps1             Remove duplicate certificates
+ui/triage-console.html          Interface prototype — open in a browser
 out/                            Exports and logs — gitignored
 ```
+
+## Interface prototype
+
+`ui/triage-console.html` — open it in a browser. Shows both use cases plus a
+capability status view marking what the POC has and has not proven. All data in
+it is invented; no tenant data appears. See [ui/README.md](ui/README.md).
 
 ## Configuration
 
