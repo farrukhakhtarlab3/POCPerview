@@ -95,8 +95,24 @@ catch {
     $result.Outcome = 'FAILED'
     $result.Error = $_.Exception.Message
     Write-Bad $_.Exception.Message
-    Write-Info 'A 403 means read works but write does not - check the permission is'
-    Write-Info 'SecurityAlert.ReadWrite.All and not SecurityAlert.Read.All.'
+
+    if ("$($_.Exception.Message)" -match '403|Forbidden|Authorization') {
+        Write-Host ''
+        Write-Info 'This is the EXPECTED result with the current grant.'
+        Write-Info ''
+        Write-Info 'The app holds SecurityAlert.Read.All, not ReadWrite. Write access was'
+        Write-Info 'deliberately withheld: there is no Purview-native API for modifying IRM'
+        Write-Info 'alerts, so the only write path is Defender XDR alerts_v2 - which syncs'
+        Write-Info 'back to Purview but also writes into the Defender incident queue used'
+        Write-Info 'by the Cyber Defence Centre.'
+        Write-Info ''
+        Write-Info 'That answers the HLD spike "Test whether any supported interface can'
+        Write-Info 'update the IRM alert/case; document fallback if not."'
+        Write-Info ''
+        Write-Info 'Fallback, per the HLD: do not write back. Record the recommendation and'
+        Write-Info 'the analyst decision in the case store, and link back to Purview so the'
+        Write-Info 'analyst applies it there.'
+    }
 }
 
 if ($result.Outcome -eq 'SUCCESS') {
