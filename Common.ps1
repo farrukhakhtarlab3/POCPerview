@@ -243,3 +243,99 @@ function Get-AttachmentsFromEml {
         ContentVisible = (-not $isTnef)
     }
 }
+
+function Get-AlertsSliced {
+    <#
+        .SYNOPSIS Retrieve alerts_v2 records by slicing the time range.
+        .DESCRIPTION
+            alerts_v2 returns at most 100 records and, in this tenant, does not
+            return an @odata.nextLink - so there is no continuation token to
+            follow and a single query can never see more than 100 alerts. Worse,
+            results come back OLDEST FIRST, so that one page holds the least
+            recent alerts in the window. A naive query over a wide window
+            therefore returns old records and silently hides everything newer.
+
+            This walks the range in slices instead. Any slice that comes back
+            full is assumed to be hiding records, so it is split in half and
+            both halves retried, down to a ten-minute floor. Results are
+            de-duplicated by id because slice boundaries can overlap.
+
+            Costs one request per slice, so it is slower than paging would be.
+            It is also the only approach that actually sees everything.
+    #>
+    param(
+        [int]$Days = 180,
+        [int]$PageSize = 100,
+        [int]$MaxCalls = 400,
+        [switch]$ShowProgress
+    )
+
+    $base = 'https://graph.microsoft.com/v1.0/security/alerts_v2'
+    $all  = New-Object System.Collections.Generic.List[object]
+    $seen = New-Object System.Collections.Generic.HashSet[string]
+
+    $endAll   = (Get-Date).ToUniversalTime().AddDays(1)
+    $startAll = (Get-Date).ToUniversalTime().AddDays(-$Days)
+
+    $stack = New-Object System.Collections.Generic.Stack[object]
+    $stack.Push(@($startAll, $endAll))
+
+    $calls = 0
+    $split = 0
+
+    while ($stack.Count -gt 0 -and $calls -lt $MaxCalls) {
+        $range = $stack.Pop()
+        $from  = $range[0]
+        $to    = $range[1]
+
+        $f = "createdDateTime ge {0} and createdDateTime lt {1}" -f `
+                $from.ToString('yyyy-MM-ddTHH:mm:ssZ'), $to.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        $uri = '{0}?$filter={1}&$top={2}' -f $base, [uri]::EscapeDataString($f), $PageSize
+
+        try {
+            $r = Invoke-MgGraphRequest -Method GET -Uri $uri -OutputType PSObject -ErrorAction Stop
+        }
+        catch {
+            Write-Warn2 ("slice {0:yyyy-MM-dd} to {1:yyyy-MM-dd} failed: {2}" -f $from, $to, $_.Exception.Message)
+            continue
+        }
+        $calls++
+
+        $items = @()
+        if ($r -is [System.Collections.IDictionary]) {
+            if ($r.Contains('value')) { $items = @($r['value']) }
+        }
+        else {
+            $p = $r.PSObject.Properties['value']
+            if ($p) { $items = @($p.Value) }
+        }
+
+        # A full page means the slice is probably hiding records behind the cap.
+        if ($items.Count -ge $PageSize -and ($to - $from).TotalMinutes -gt 10) {
+            $mid = $from.AddTicks([long](($to - $from).Ticks / 2))
+            $stack.Push(@($from, $mid))
+            $stack.Push(@($mid, $to))
+            $split++
+            continue
+        }
+
+        $added = 0
+        foreach ($i in $items) {
+            $id = "$(Get-Prop $i 'id')"
+            if ($id -and -not $seen.Contains($id)) { [void]$seen.Add($id); [void]$all.Add($i); $added++ }
+        }
+
+        if ($ShowProgress -and $items.Count -gt 0) {
+            Write-Host ("    {0:yyyy-MM-dd HH:mm} to {1:yyyy-MM-dd HH:mm}  got {2,4}  new {3,4}  total {4}" -f `
+                $from, $to, $items.Count, $added, $all.Count) -ForegroundColor DarkGray
+        }
+    }
+
+    if ($calls -ge $MaxCalls) {
+        Write-Warn2 "Stopped at the $MaxCalls request ceiling - results may be incomplete."
+        Write-Info  'Raise -MaxCalls or narrow -Days.'
+    }
+    Write-Info ("{0} request(s), {1} slice split(s), {2} distinct alert(s)." -f $calls, $split, $all.Count)
+
+    return $all
+}

@@ -1,39 +1,45 @@
 <#
-    STEP 14 - Diagnostic. How far back can we actually see, and is a specific
-    alert visible at all?
+    STEP 14 - Diagnostic. What can this identity actually see, and is a given
+    alert present at all?
 
-    Written because 12-Get-IrmAlerts.ps1 returned 7 alerts over 30 days but ZERO
-    over 180 - a wider window returning fewer results, which should be
-    impossible. Something other than the IRM name filter is at work.
+    Written after 12-Get-IrmAlerts.ps1 returned 7 alerts over 30 days and zero
+    over 180. A wider window returning fewer results is impossible unless the
+    retrieval itself is at fault, and it was: alerts_v2 caps at 100 records,
+    returns no continuation link to follow, and orders results OLDEST FIRST.
+    One query over a wide window therefore returns old records and hides
+    everything newer, with no error to notice.
 
-    Three things it checks:
+    What this does:
 
-      1. Window probe   - query several date windows and count what comes back.
-                          If the wide ones return zero, alerts_v2 is silently
-                          refusing to look that far back rather than erroring.
+      1. Window probe  - query several date windows and show the OLDEST record
+                         each returns. Every row showing exactly 100 is the cap,
+                         not the answer.
 
-      2. No-filter probe - ask for alerts with no date filter at all, to see
-                          what the service returns by default.
+      2. Raw shape     - print the top-level properties of a response, to show
+                         whether a continuation link is present at all.
 
-      3. -Find <text>   - pull everything visible and search every field for a
-                          string. Use this to answer "does this alert exist in
-                          Defender at all", rather than inferring from a filter
-                          that might be the problem itself.
+      3. -Find <text>  - sweep the range in time slices, splitting any slice
+                         that comes back full, then search every field of every
+                         alert found. The only form that can give a trustworthy
+                         "not present" answer.
 
-    Entirely read-only. Changes nothing.
+    Entirely read-only.
 
     Examples:
       .\14-Probe-AlertWindow.ps1
       .\14-Probe-AlertWindow.ps1 -Find "da9ffdde"
+      .\14-Probe-AlertWindow.ps1 -Find "da9ffdde" -Days 365
 #>
 [CmdletBinding()]
 param(
-    # Substring to hunt for across every field of every visible alert.
+    # Substring to hunt for across every field of every alert found.
     [string]$Find,
 
-    # Cap for the -Find sweep. alerts_v2 returns OLDEST FIRST, so a low cap
-    # hides the most recent alerts - the ones you usually want. Keep it high.
-    [int]$MaxAlerts = 20000
+    # How far back the -Find sweep reaches.
+    [int]$Days = 180,
+
+    # Ceiling on requests during the sweep. Raise for a busy tenant.
+    [int]$MaxCalls = 400
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,14 +67,12 @@ foreach ($d in 7, 14, 30, 45, 60, 90, 180, 365) {
     try {
         $r = Invoke-MgGraphRequest -Method GET -Uri $uri -OutputType PSObject -ErrorAction Stop
         $items = @($r.value)
-        $note = ''
+        $note = 'EMPTY'
         if ($items.Count -gt 0) {
             $dates = $items | ForEach-Object { Get-Prop $_ 'createdDateTime' } | Where-Object { $_ } | Sort-Object
             if ($dates) { $note = "oldest $($dates[0])" }
         }
-        else { $note = 'EMPTY' }
-        $colour = if ($items.Count -eq 0) { 'Yellow' } else { 'Gray' }
-        Write-Host ('  {0,6}  {1,8}  {2}' -f $d, $items.Count, $note) -ForegroundColor $colour
+        Write-Host ('  {0,6}  {1,8}  {2}' -f $d, $items.Count, $note) -ForegroundColor Gray
     }
     catch {
         Write-Host ('  {0,6}  {1,8}  {2}' -f $d, 'ERROR', $_.Exception.Message) -ForegroundColor Red
@@ -76,60 +80,75 @@ foreach ($d in 7, 14, 30, 45, 60, 90, 180, 365) {
 }
 
 Write-Host ''
-    Write-Info 'Watch the Oldest column rather than the count. If every row shows'
-    Write-Info 'exactly 100, that is the page size, not the answer - and the dates'
-    Write-Info 'show the service returns OLDEST FIRST. A capped query therefore'
-    Write-Info 'drops the most RECENT alerts, which is the opposite of what most'
-    Write-Info 'code assumes, and it fails without any error.'
+Write-Info 'Read the Oldest column, not the count. Every row showing exactly 100'
+Write-Info 'is the page cap. The dates then show results arrive OLDEST FIRST, so'
+Write-Info 'a capped query silently drops the most RECENT alerts - the opposite'
+Write-Info 'of what almost any caller expects.'
 
-# ------------------------------------------------------------- 2. no filter
-Write-Step 'No date filter'
+# ------------------------------------------------------------- 2. raw shape
+Write-Step 'Response shape'
+Write-Info 'Top-level properties of one response. If no continuation link appears'
+Write-Info 'here, there is nothing to page with and slicing is the only option.'
 try {
-    $r = Invoke-MgGraphRequest -Method GET -Uri ('{0}?$top=100' -f $base) -OutputType PSObject -ErrorAction Stop
-    $items = @($r.value)
-    Write-Ok "$($items.Count) returned with no filter at all."
-    if ($items.Count -gt 0) {
-        $dates = $items | ForEach-Object { Get-Prop $_ 'createdDateTime' } | Where-Object { $_ } | Sort-Object
-        Write-Info "Oldest : $($dates[0])"
-        Write-Info "Newest : $($dates[-1])"
+    $r = Invoke-MgGraphRequest -Method GET -Uri ('{0}?$top=5' -f $base) -OutputType PSObject -ErrorAction Stop
+    $names = @()
+    if ($r -is [System.Collections.IDictionary]) { $names = @($r.Keys | ForEach-Object { "$_" }) }
+    else { $names = @($r.PSObject.Properties | ForEach-Object { $_.Name }) }
+    foreach ($n in $names) { Write-Host "    $n" }
+    if (-not ($names | Where-Object { $_ -like '*nextLink*' })) {
+        Write-Host ''
+        Write-Warn2 'No continuation link present. Confirms the cap cannot be paged past.'
     }
 }
 catch { Write-Bad $_.Exception.Message }
 
 # ------------------------------------------------------------------ 3. find
 if ($Find) {
-    Write-Step "Searching every visible alert for '$Find'"
-    Write-Info "Pulling up to $MaxAlerts alerts with no date filter, then matching"
-    Write-Info 'against the whole record - title, id, policy fields, everything.'
+    Write-Step "Sweeping $Days days in slices"
+    Write-Info 'Splitting any slice that comes back full, so nothing hides behind'
+    Write-Info 'the 100-record cap. One request per slice, so this takes a moment.'
+    Write-Host ''
 
     try {
-        $all = @(Invoke-GraphGet -Uri ('{0}?$top=100' -f $base) -MaxItems $MaxAlerts -ShowProgress)
+        $all = @(Get-AlertsSliced -Days $Days -MaxCalls $MaxCalls -ShowProgress)
     }
     catch {
         Write-Bad $_.Exception.Message
         return
     }
-    Write-Ok "$($all.Count) alert(s) pulled."
 
+    Write-Host ''
+    Write-Ok "$($all.Count) distinct alert(s) found."
+
+    if ($all.Count -gt 0) {
+        $dates = $all | ForEach-Object { Get-Prop $_ 'createdDateTime' } | Where-Object { $_ } | Sort-Object
+        Write-Info "Oldest : $($dates[0])"
+        Write-Info "Newest : $($dates[-1])"
+    }
+
+    Write-Step "Searching for '$Find'"
     $hits = @($all | Where-Object {
         ($_ | ConvertTo-Json -Depth 6 -Compress) -match [regex]::Escape($Find)
     })
 
     if ($hits.Count -eq 0) {
         Write-Host ''
-        Write-Bad "'$Find' does not appear in the $($all.Count) alert(s) searched."
-        Write-Info ""
-        Write-Info "Only conclusive if that count is the whole set. If it equals"
-        Write-Info "-MaxAlerts ($MaxAlerts), raise it and run again before concluding."
+        Write-Bad "'$Find' is not in any of the $($all.Count) alert(s) swept."
         Write-Info ''
-        Write-Info 'That is a result, not a failure. It means the alert exists in'
-        Write-Info 'Purview but has not reached Defender XDR. Most likely cause is'
-        Write-Info 'the IRM data sharing setting - "Share user risk details with'
-        Write-Info 'other security solutions" - being off, or the alert predating'
-        Write-Info 'whatever history the service will return.'
+        Write-Info 'This sweep splits slices that fill up, so unlike a single capped'
+        Write-Info 'query it does cover the range. Treat it as a real answer, with'
+        Write-Info "the one caveat that it only looked back $Days days."
         Write-Info ''
-        Write-Info 'Worth asking whoever nominated it to confirm they can see it in'
-        Write-Info 'the Defender portal themselves.'
+        Write-Info 'Most likely meaning: the alert is in Purview but has not reached'
+        Write-Info 'Defender XDR. The usual cause is the IRM data sharing setting,'
+        Write-Info '"Share user risk details with other security solutions", being'
+        Write-Info 'off - without it insider risk alerts never cross over.'
+        Write-Info ''
+        Write-Info 'Worth asking whoever nominated the alert to confirm they can see'
+        Write-Info 'it in the Defender portal themselves. That separates a tenant'
+        Write-Info 'configuration gap from anything to do with these scripts.'
+        Write-Info ''
+        Write-Info 'Try a wider window first, with -Days 365.'
     }
     else {
         Write-Ok "$($hits.Count) match(es)."
@@ -140,30 +159,52 @@ if ($Find) {
             @{n='Status';e={Get-Prop $_ 'status'}},
             @{n='AssignedTo';e={Get-Prop $_ 'assignedTo'}},
             @{n='Classification';e={Get-Prop $_ 'classification'}},
+            @{n='ServiceSource';e={Get-Prop $_ 'serviceSource'}},
             @{n='Title';e={Get-Prop $_ 'title'}} |
             Format-List | Out-String | Write-Host
 
-        Write-Info 'Copy the Id, then dry-run the update (changes nothing):'
+        Write-Info 'Copy the Id, then dry-run the update - changes nothing:'
         Write-Info '  .\13-Update-IrmAlert.ps1 -Id "<id>" -AssignTo "<upn>" -NewStatus inProgress'
     }
+
+    # ------------------------------------------------- what the sweep saw
+    Write-Step 'Service source values across the sweep'
+    $all | ForEach-Object { Get-Prop $_ 'serviceSource' } | Where-Object { $_ } |
+        Group-Object | Sort-Object Count -Descending |
+        ForEach-Object { Write-Host ('  {0,-34} {1}' -f $_.Name, $_.Count) }
+
+    Write-Step 'Insider risk alerts found'
+    $irm = @($all | Where-Object {
+        "$(Get-Prop $_ 'title')" -match 'Insider Risk|Purview IRM'
+    })
+    Write-Ok "$($irm.Count) alert(s) look like Insider Risk by title."
+    if ($irm.Count -gt 0) {
+        $irm | Sort-Object { Get-Prop $_ 'createdDateTime' } -Descending |
+            Select-Object -First 25 `
+                @{n='Created';e={Get-Prop $_ 'createdDateTime'}},
+                @{n='Status';e={Get-Prop $_ 'status'}},
+                @{n='Title';e={Get-Prop $_ 'title'}},
+                @{n='Id';e={Get-Prop $_ 'id'}} |
+            Format-Table -AutoSize -Wrap | Out-String | Write-Host
+    }
+
+    $out = Initialize-OutDir
+    $path = Join-Path $out ("alert-sweep-{0}.csv" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    $all | Select-Object `
+        @{n='Created';e={Get-Prop $_ 'createdDateTime'}},
+        @{n='Severity';e={Get-Prop $_ 'severity'}},
+        @{n='Status';e={Get-Prop $_ 'status'}},
+        @{n='AssignedTo';e={Get-Prop $_ 'assignedTo'}},
+        @{n='ServiceSource';e={Get-Prop $_ 'serviceSource'}},
+        @{n='Title';e={Get-Prop $_ 'title'}},
+        @{n='Id';e={Get-Prop $_ 'id'}} |
+        Export-Csv -Path $path -NoTypeInformation -Encoding UTF8
+    Write-Step 'Saved'
+    Write-Ok $path
+    Write-Info 'Real alert data. out\ is gitignored - keep it local.'
 }
 else {
     Write-Step 'Looking for a specific alert?'
-    Write-Info 'Re-run with -Find to search every field of every visible alert:'
+    Write-Info 'Re-run with -Find to sweep the whole range and search every field:'
     Write-Info '  .\14-Probe-AlertWindow.ps1 -Find "da9ffdde"'
 }
-
-# --------------------------------------------------------------- what we saw
-Write-Step 'Service source values present'
-try {
-    $sample = @(Invoke-GraphGet -Uri ('{0}?$top=100' -f $base) -MaxItems 500)
-    $sample | ForEach-Object { Get-Prop $_ 'serviceSource' } | Where-Object { $_ } |
-        Group-Object | Sort-Object Count -Descending |
-        ForEach-Object { Write-Host ('  {0,-34} {1}' -f $_.Name, $_.Count) }
-    Write-Host ''
-    Write-Info 'Insider Risk alerts report serviceSource as unknownFutureValue -'
-    Write-Info 'Graph has no enum value for them yet. That means they cannot be'
-    Write-Info 'filtered server-side, and that any code matching on that value will'
-    Write-Info 'break the day Microsoft assigns a real one.'
-}
-catch { Write-Warn2 $_.Exception.Message }
