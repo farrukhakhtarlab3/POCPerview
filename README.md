@@ -1,6 +1,7 @@
 # Quarantine Triage POC
 
 > **Just want the commands?** → **[STEPS.md](STEPS.md)** — copy-paste run sheet for the VDI.
+> Insider Risk side only? **[IRM-QUICKSTART.md](IRM-QUICKSTART.md)**.
 
 Technical feasibility test for the email quarantine support agent.
 
@@ -235,6 +236,7 @@ Common.ps1                      Shared helpers (not run directly)
 13-Update-IrmAlert.ps1          Assign + set status (gated)
 
 99-Cert-Cleanup.ps1             Remove duplicate certificates
+IRM-QUICKSTART.md               Copy-paste sheet for the IRM half
 ui/triage-console.html          Interface prototype — open in a browser
 out/                            Exports and logs — gitignored
 ```

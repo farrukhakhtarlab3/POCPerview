@@ -1,11 +1,11 @@
 # Run sheet
 
-Copy-paste sequence for the VDI. One command at a time — multi-line pastes get
+Copy-paste sequence for the VDI. One command at a time â multi-line pastes get
 mangled in the PowerShell console.
 
 Background and troubleshooting are in [README.md](README.md).
 
-> **The quarantine queue holds production mail.** Verified 21 Oct 2026 — real
+> **The quarantine queue holds production mail.** Verified 21 Oct 2026 â real
 > staff, real personal recipient addresses, real correspondence. Steps 1 to 8
 > are read-only and safe. Step 9 releases a real message and needs explicit
 > sign-off. Anything written to `out/` is real personal data: keep it on the
@@ -15,11 +15,11 @@ Background and troubleshooting are in [README.md](README.md).
 
 ### 1. Open PowerShell
 
-Search → `powershell` → **Windows PowerShell**. No admin needed.
+Search â `powershell` â **Windows PowerShell**. No admin needed.
 
 ### 2. Get the code
 
-**No git on the VDI?** Use this — downloads and extracts the ZIP, no git or
+**No git on the VDI?** Use this â downloads and extracts the ZIP, no git or
 browser required.
 
 ```powershell
@@ -35,7 +35,7 @@ Expand-Archive -Path "$env:USERPROFILE\POCPerview.zip" -DestinationPath $env:USE
 cd "$env:USERPROFILE\POCPerview-main"
 ```
 
-The folder is `POCPerview-main` — GitHub appends the branch name to ZIP
+The folder is `POCPerview-main` â GitHub appends the branch name to ZIP
 downloads.
 
 **If git is available**, this works too:
@@ -63,7 +63,7 @@ Get-ChildItem -Recurse | Unblock-File
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 ```
 
-Process scope only — resets when the window closes.
+Process scope only â resets when the window closes.
 
 ### 4. Install the module
 
@@ -71,7 +71,7 @@ Process scope only — resets when the window closes.
 .\00-Install-Prereqs.ps1
 ```
 
-### 5. Certificate — SKIP if yours is already uploaded
+### 5. Certificate â SKIP if yours is already uploaded
 
 Only the certificate uploaded to the app registration can authenticate. Running
 this again would create a second one and silently break auth, so the script
@@ -95,7 +95,7 @@ Starting over (then send the new `.cer` to the tenant admin):
 
 Expect a `PASS` for each of `Get-QuarantineMessage`,
 `Get-QuarantineMessageHeader`, `Preview-QuarantineMessage`,
-`Export-QuarantineMessage`, `Release-QuarantineMessage` — and
+`Export-QuarantineMessage`, `Release-QuarantineMessage` â and
 `Delete-QuarantineMessage` correctly **absent**.
 
 ### 7. Read the queue
@@ -113,7 +113,7 @@ Wider window (service maximum is 30 days):
 #### Getting an Identity value
 
 The table is wide and the `Identity` column often runs off the right of the
-console. Use `Format-List` instead — nothing truncates:
+console. Use `Format-List` instead â nothing truncates:
 
 ```powershell
 Get-QuarantineMessage -Direction Outbound -Type DataLossPrevention -PageSize 10 | Select-Object Subject, SenderAddress, Identity | Format-List
@@ -144,9 +144,9 @@ disk. Pick something routine.
 Lists the attachments it can see. This is what proves the classifier can tell a
 payslip on its own from a payslip with something else attached.
 
-### 9. Release test — dry run first
+### 9. Release test â dry run first
 
-> ### ⚠️ The queue contains production mail
+> ### â ï¸ The queue contains production mail
 >
 > Confirmed 21 Oct 2026: step 7 returned 100 messages from real staff to real
 > personal addresses, including HR, medical and audit correspondence. This is
@@ -154,7 +154,7 @@ payslip on its own from a payslip with something else attached.
 >
 > Releasing here delivers a genuine email to a real external recipient that a
 > DLP policy deliberately held back. **Do not run this step without explicit
-> sign-off from the tenant owner and a specific nominated message** — ideally
+> sign-off from the tenant owner and a specific nominated message** â ideally
 > one a reviewer had already approved for release, so the outcome is what would
 > have happened anyway and only the trigger differs.
 >
@@ -166,7 +166,7 @@ Sends nothing:
 .\05-Test-Release.ps1 -Identity "<guid1\guid2>"
 ```
 
-Then for real — asks you to type `RELEASE`:
+Then for real â asks you to type `RELEASE`:
 
 ```powershell
 .\05-Test-Release.ps1 -Identity "<guid1\guid2>" -Execute
@@ -180,19 +180,34 @@ Then for real — asks you to type `RELEASE`:
 does anything irreversible.
 
 **This repository is public.** `out/`, `*.eml` and certificate files are
-gitignored. Everything the scripts export stays local — don't force-add anything
+gitignored. Everything the scripts export stays local â don't force-add anything
 from `out/`.
 
 ---
 
-# Use case 2 — Insider Risk alerts
+# Use case 2 â Insider Risk alerts
 
 Separate app registration, separate certificate, different API. Nothing is
 shared with the quarantine side: that app has no Graph access, this one has no
 Exchange access.
 
-Needs **Microsoft Graph → `SecurityAlert.ReadWrite.All`** (Application, admin
-consent) on its own registration.
+**Quickstart for just this half: [IRM-QUICKSTART.md](IRM-QUICKSTART.md).**
+
+| Permission | Incidents | Alerts | Granted? |
+|---|---|---|---|
+| `SecurityAlert.Read.All` | — | Read | **Yes** |
+| `SecurityAlert.ReadWrite.All` | — | Read/Write | Not yet |
+| `SecurityIncident.ReadWrite.All` | Read/Write | Read/Write | No — and not wanted |
+
+Steps 11 and 12 work with what is granted today. Step 13 needs the ReadWrite
+upgrade and returns 403 until then.
+
+Alerts and incidents are separate objects. `SecurityAlert.ReadWrite.All` grants
+**no incident access**, so it cannot alter the Defender XDR incident queue the
+Cyber Defence Centre works from — that would need
+`SecurityIncident.ReadWrite.All`, which is out of scope. See the permissions
+table under "Microsoft Graph API roles" in
+[Investigate insider risk threats in the Microsoft Defender portal](https://learn.microsoft.com/en-us/defender-xdr/irm-investigate-alerts-defender).
 
 ### 10. Certificate for the IRM app
 
@@ -200,8 +215,14 @@ consent) on its own registration.
 .\10-New-IrmCertificate.ps1
 ```
 
-Send the `.cer` to the tenant admin, then put the client ID into `config.ps1`
-as `$script:IrmAppId`.
+The client ID is already in `config.ps1` — nothing to edit. Send the `.cer`
+(public key, safe to email) to the tenant admin for upload, then allow a few
+minutes for propagation.
+
+If step 11 returns no IRM alerts, check that **Share user risk details with
+other security solutions** is enabled in Purview Insider Risk Management data
+sharing settings before assuming a permissions problem — IRM alerts do not
+reach Defender at all without it.
 
 ### 11. Connect and find out how IRM alerts are identified
 
@@ -211,7 +232,7 @@ as `$script:IrmAppId`.
 
 **Run this before anything else on the IRM side.** Microsoft's published
 `serviceSource` enum lists `dataLossPrevention` but has **no value for Insider
-Risk Management**. The Defender portal filters by it, so the alerts exist — how
+Risk Management**. The Defender portal filters by it, so the alerts exist â how
 to select them through the API is undocumented.
 
 Rather than guessing a filter value, this enumerates every alert the identity
@@ -240,6 +261,13 @@ The IRM equivalent of the release test — proving the identity can write, not
 just read. Far lower risk: nothing is sent and nothing leaves the tenant, these
 are fields on the alert record.
 
+> **Expect 403 today.** Only `SecurityAlert.Read.All` is granted, so the PATCH
+> is refused. Run it anyway — the refusal is the evidence, and it answers the
+> HLD spike *"test whether any supported interface can update the IRM
+> alert/case"*. It is an access decision, not an API limitation: the write path
+> exists and Microsoft documents it. The attempt is journalled to
+> `out\irm-update-*.json` either way.
+
 Dry run:
 
 ```powershell
@@ -267,9 +295,9 @@ It re-reads the alert afterwards and confirms each field actually changed.
 
 Several certificates with the same subject accumulate easily across attempts.
 Only the one uploaded to the app registration authenticates, and the scripts
-pick the newest — so a stale duplicate can cause a confusing failure later.
+pick the newest â so a stale duplicate can cause a confusing failure later.
 
-See what it would do — dry run, removes nothing:
+See what it would do â dry run, removes nothing:
 
 ```powershell
 .\99-Cert-Cleanup.ps1
@@ -329,12 +357,12 @@ Get-QuarantineMessage -Identity "<guid1\guid2>" | Select-Object Subject, Release
 
 | Symptom | Cause |
 |---|---|
-| `Install-Module` fails with `CommandAlreadyAvailable` | Needs `-AllowClobber` — the script already passes it |
+| `Install-Module` fails with `CommandAlreadyAvailable` | Needs `-AllowClobber` â the script already passes it |
 | certificate / `AADSTS700027` | CNG certificate. Re-run step 5 with `-Force` |
-| `AADSTS90002` tenant not found | Wrong domain — must be `.onmicrosoft.com` |
+| `AADSTS90002` tenant not found | Wrong domain â must be `.onmicrosoft.com` |
 | `AADSTS700016` app not found | Wrong AppId in `config.ps1` |
 | Insufficient privileges | Admin consent not granted on `Exchange.ManageAsApp` |
 | Worked before, fails now | Certificate upload still propagating. Wait a few minutes |
-| `Get-OrganizationConfig` not recognised | Not necessarily wrong — a correctly scoped role group excludes it. Step 6 checks the quarantine cmdlets directly |
+| `Get-OrganizationConfig` not recognised | Not necessarily wrong â a correctly scoped role group excludes it. Step 6 checks the quarantine cmdlets directly |
 | Step 7 returns nothing | Script checks whether anything at all is quarantined, so you can tell "no outbound DLP yet" from "can't see the queue" |
 | Export works, no attachments listed | Message may genuinely have none, or they're encoded in a form the simple parser missed. Open the `.eml` from `out\` in Outlook to check |

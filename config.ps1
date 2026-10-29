@@ -23,23 +23,39 @@ $script:CertSubject = 'CN=QuarantineAgentPOC'
 # not need: this one has no Exchange access, and the quarantine app has no Graph
 # access.
 #
-# Permission granted: Microsoft Graph -> SecurityAlert.Read.All
-#                      (Application, admin consent)
+# Permission currently granted: Microsoft Graph -> SecurityAlert.Read.All
+#                                (Application, admin consent)
 #
-# READ-ONLY, deliberately. Woodside's DLP team work out of Purview, not the
-# Defender XDR portal. There is no Purview-native API for modifying IRM alerts,
-# so the only programmatic write path is Defender's alerts_v2 - which syncs back
-# to Purview within 30 minutes but also writes into the Defender incident queue
-# used by the Cyber Defence Centre. Write access was withheld to avoid that
-# collision.
+# Read-only for now, pending an access decision - not because no write path
+# exists. There is no Purview-native API for modifying IRM alert instances
+# (Set-ProtectionAlert edits alert POLICIES, not alerts), so the supported write
+# path is Defender's alerts_v2. Microsoft documents that route for exactly this
+# scenario and states that updates made in either portal are reflected in both
+# within about 30 minutes.
 #
-# This matches the MVP scope in the IRM HLD: "Initial scope is read-only against
-# evidence sources. Any IRM case update requires explicit analyst approval and a
-# supported interface." Autonomous closure is listed under Future Additions.
+# The concern raised was that writing through Defender would disturb the
+# incident queue the Cyber Defence Centre works from. That applies to a
+# different permission. Alerts and incidents are separate objects:
 #
-# 13-Update-IrmAlert.ps1 will therefore fail with 403 on PATCH. That is the
-# expected result, not a fault - and it is the documented answer to the HLD
-# spike "Test whether any supported interface can update the IRM alert/case".
+#   SecurityAlert.ReadWrite.All       alerts read/write, NO incident access
+#   SecurityIncident.ReadWrite.All    incidents read/write, and alerts too
+#
+# These scripts only touch /security/alerts_v2 and only set status, assignedTo
+# and classification - all alert fields. SecurityAlert.ReadWrite.All cannot
+# modify an incident at all, so it cannot alter incident tags or severity.
+# SecurityIncident.ReadWrite.All could, and is deliberately out of scope.
+#
+# Residual limitation, stated honestly: both permissions are tenant-wide and
+# cannot be scoped to a single alert source. If that is too broad, the fallback
+# is delegated access, where the write carries the signed-in analyst's identity
+# and is bounded by their own role.
+#
+# Reference: https://learn.microsoft.com/en-us/defender-xdr/irm-investigate-alerts-defender
+#            (permissions table under "Microsoft Graph API roles")
+#
+# Until ReadWrite is granted, 13-Update-IrmAlert.ps1 fails with 403 on PATCH.
+# That is the expected result and is the documented answer to the HLD spike
+# "test whether any supported interface can update the IRM alert/case".
 # ---------------------------------------------------------------------------
 $script:IrmAppId       = '69fe253b-d40d-40c5-92c2-f602a238831c'
 $script:IrmCertSubject = 'CN=IrmAgentPOC'
