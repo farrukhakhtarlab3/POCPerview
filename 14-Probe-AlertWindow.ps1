@@ -31,8 +31,9 @@ param(
     # Substring to hunt for across every field of every visible alert.
     [string]$Find,
 
-    # Cap for the -Find sweep. Raise if the tenant is busy.
-    [int]$MaxAlerts = 2000
+    # Cap for the -Find sweep. alerts_v2 returns OLDEST FIRST, so a low cap
+    # hides the most recent alerts - the ones you usually want. Keep it high.
+    [int]$MaxAlerts = 20000
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,10 +76,11 @@ foreach ($d in 7, 14, 30, 45, 60, 90, 180, 365) {
 }
 
 Write-Host ''
-Write-Info 'If the wide windows return 0 while narrow ones return results, the'
-Write-Info 'service is refusing to look that far back and reporting it as an'
-Write-Info 'empty set rather than an error. That is a finding worth recording -'
-Write-Info 'it silently caps how much history an agent can reason over.'
+    Write-Info 'Watch the Oldest column rather than the count. If every row shows'
+    Write-Info 'exactly 100, that is the page size, not the answer - and the dates'
+    Write-Info 'show the service returns OLDEST FIRST. A capped query therefore'
+    Write-Info 'drops the most RECENT alerts, which is the opposite of what most'
+    Write-Info 'code assumes, and it fails without any error.'
 
 # ------------------------------------------------------------- 2. no filter
 Write-Step 'No date filter'
@@ -101,7 +103,7 @@ if ($Find) {
     Write-Info 'against the whole record - title, id, policy fields, everything.'
 
     try {
-        $all = @(Invoke-GraphGet -Uri ('{0}?$top=100' -f $base) -MaxItems $MaxAlerts)
+        $all = @(Invoke-GraphGet -Uri ('{0}?$top=100' -f $base) -MaxItems $MaxAlerts -ShowProgress)
     }
     catch {
         Write-Bad $_.Exception.Message
@@ -115,7 +117,10 @@ if ($Find) {
 
     if ($hits.Count -eq 0) {
         Write-Host ''
-        Write-Bad "'$Find' does not appear in any alert this identity can see."
+        Write-Bad "'$Find' does not appear in the $($all.Count) alert(s) searched."
+        Write-Info ""
+        Write-Info "Only conclusive if that count is the whole set. If it equals"
+        Write-Info "-MaxAlerts ($MaxAlerts), raise it and run again before concluding."
         Write-Info ''
         Write-Info 'That is a result, not a failure. It means the alert exists in'
         Write-Info 'Purview but has not reached Defender XDR. Most likely cause is'

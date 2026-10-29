@@ -128,19 +128,59 @@ function Connect-Irm {
 }
 
 function Invoke-GraphGet {
-    <#  .SYNOPSIS GET from Graph, following @odata.nextLink. #>
-    param([Parameter(Mandatory=$true)][string]$Uri, [int]$MaxItems = 500)
+    <#
+        .SYNOPSIS GET from Graph, following the continuation link.
+        .DESCRIPTION
+            Two things here are easy to get wrong and both fail silently.
+
+            The continuation token is surfaced under slightly different property
+            names depending on SDK version and output type. Matching the exact
+            string '@odata.nextLink' can miss it, in which case paging stops
+            after one page and every query quietly caps at 100 results while
+            looking like a complete answer.
+
+            Second, alerts_v2 returns results OLDEST FIRST. A MaxItems cap
+            therefore truncates the NEWEST records - the opposite of what you
+            usually want. Set MaxItems high enough to reach the end, or widen
+            the window and expect to page through everything before it.
+    #>
+    param(
+        [Parameter(Mandatory=$true)][string]$Uri,
+        [int]$MaxItems = 500,
+        [switch]$ShowProgress
+    )
 
     $all = New-Object System.Collections.Generic.List[object]
     $pages = 0
-    while ($Uri -and $all.Count -lt $MaxItems -and $pages -lt 50) {
-        $r = Invoke-MgGraphRequest -Method GET -Uri $Uri -OutputType PSObject -ErrorAction Stop
-        $v = $r.PSObject.Properties['value']
-        if ($v -and $v.Value) { foreach ($i in $v.Value) { [void]$all.Add($i) } }
-        $n = $r.PSObject.Properties['@odata.nextLink']
-        $Uri = if ($n) { $n.Value } else { $null }
+    $next = $Uri
+
+    while ($next -and $all.Count -lt $MaxItems -and $pages -lt 500) {
+        $r = Invoke-MgGraphRequest -Method GET -Uri $next -OutputType PSObject -ErrorAction Stop
+
+        $v = $null
+        if ($r -is [System.Collections.IDictionary]) {
+            if ($r.Contains('value')) { $v = $r['value'] }
+        }
+        else {
+            $p = $r.PSObject.Properties['value']
+            if ($p) { $v = $p.Value }
+        }
+        if ($v) { foreach ($i in @($v)) { [void]$all.Add($i) } }
+
+        $next = $null
+        if ($r -is [System.Collections.IDictionary]) {
+            foreach ($k in $r.Keys) { if ("$k" -like '*nextLink') { $next = [string]$r[$k]; break } }
+        }
+        else {
+            foreach ($p in $r.PSObject.Properties) { if ($p.Name -like '*nextLink') { $next = [string]$p.Value; break } }
+        }
+
         $pages++
+        if ($ShowProgress) {
+            Write-Host ("    page {0,-4} running total {1}" -f $pages, $all.Count) -ForegroundColor DarkGray
+        }
     }
+
     return $all
 }
 
