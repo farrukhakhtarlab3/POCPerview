@@ -267,19 +267,32 @@ function Get-AlertsSliced {
         [int]$Days = 180,
         [int]$PageSize = 100,
         [int]$MaxCalls = 400,
-        [switch]$ShowProgress
+        [switch]$ShowProgress,
+
+        # Explicit range, both UTC. They override -Days and are the only
+        # practical way to search a busy tenant: pick a narrow window around a
+        # known creation time rather than sweeping from today backwards.
+        [datetime]$From,
+        [datetime]$To
     )
 
     $base = 'https://graph.microsoft.com/v1.0/security/alerts_v2'
     $all  = New-Object System.Collections.Generic.List[object]
     $seen = New-Object System.Collections.Generic.HashSet[string]
 
-    $endAll   = (Get-Date).ToUniversalTime().AddDays(1)
-    $startAll = (Get-Date).ToUniversalTime().AddDays(-$Days)
+    if ($PSBoundParameters.ContainsKey('From') -or $PSBoundParameters.ContainsKey('To')) {
+        $startAll = if ($PSBoundParameters.ContainsKey('From')) { $From.ToUniversalTime() } else { (Get-Date).ToUniversalTime().AddDays(-$Days) }
+        $endAll   = if ($PSBoundParameters.ContainsKey('To'))   { $To.ToUniversalTime() }   else { (Get-Date).ToUniversalTime().AddDays(1) }
+    }
+    else {
+        $endAll   = (Get-Date).ToUniversalTime().AddDays(1)
+        $startAll = (Get-Date).ToUniversalTime().AddDays(-$Days)
+    }
 
     $stack = New-Object System.Collections.Generic.Stack[object]
     $stack.Push(@($startAll, $endAll))
 
+    $script:SweepTruncated = $false
     $calls = 0
     $split = 0
 
@@ -332,8 +345,10 @@ function Get-AlertsSliced {
     }
 
     if ($calls -ge $MaxCalls) {
-        Write-Warn2 "Stopped at the $MaxCalls request ceiling - results may be incomplete."
-        Write-Info  'Raise -MaxCalls or narrow -Days.'
+        $script:SweepTruncated = $true
+        Write-Warn2 "Stopped at the $MaxCalls request ceiling - the sweep is INCOMPLETE."
+        Write-Info  'It covered only the most recent part of the window. Raise -MaxCalls,'
+        Write-Info  'narrow -Days, or use -From and -To to target a known period.'
     }
     Write-Info ("{0} request(s), {1} slice split(s), {2} distinct alert(s)." -f $calls, $split, $all.Count)
 

@@ -135,20 +135,25 @@ if ($Find) {
         Write-Host ''
         Write-Bad "'$Find' is not in any of the $($all.Count) alert(s) swept."
         Write-Info ''
-        Write-Info 'This sweep splits slices that fill up, so unlike a single capped'
-        Write-Info 'query it does cover the range. Treat it as a real answer, with'
-        Write-Info "the one caveat that it only looked back $Days days."
-        Write-Info ''
-        Write-Info 'Most likely meaning: the alert is in Purview but has not reached'
-        Write-Info 'Defender XDR. The usual cause is the IRM data sharing setting,'
-        Write-Info '"Share user risk details with other security solutions", being'
-        Write-Info 'off - without it insider risk alerts never cross over.'
-        Write-Info ''
-        Write-Info 'Worth asking whoever nominated the alert to confirm they can see'
-        Write-Info 'it in the Defender portal themselves. That separates a tenant'
-        Write-Info 'configuration gap from anything to do with these scripts.'
-        Write-Info ''
-        Write-Info 'Try a wider window first, with -Days 365.'
+        if ($script:SweepTruncated) {
+            Write-Bad 'BUT THE SWEEP WAS TRUNCATED - this is NOT a real answer.'
+            Write-Info ''
+            if ($all.Count -gt 0) {
+                Write-Info ("It only covered {0} to {1}, not the {2} days asked for." -f $dates[0], $dates[-1], $Days)
+            }
+            Write-Info 'This tenant generates far too many alerts to sweep exhaustively.'
+            Write-Info 'Raise -MaxCalls, or better, narrow to a known period once you'
+            Write-Info 'have the creation date, or ask for the full alert id and read'
+            Write-Info 'it directly with 13-Update-IrmAlert.ps1 as a dry run.'
+        }
+        else {
+            Write-Info 'The sweep completed without hitting its request ceiling, so it did'
+            Write-Info "cover the full $Days days and this is a real answer."
+            Write-Info ''
+            Write-Info 'Most likely meaning: the alert is in Purview but has not reached'
+            Write-Info 'Defender XDR. Worth asking whoever nominated it to confirm they'
+            Write-Info 'can see it in the Defender portal themselves.'
+        }
     }
     else {
         Write-Ok "$($hits.Count) match(es)."
