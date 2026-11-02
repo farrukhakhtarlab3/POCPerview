@@ -5,8 +5,8 @@ multi-line pastes get mangled in the PowerShell console.
 
 Full run sheet: [STEPS.md](STEPS.md). Background: [README.md](README.md).
 
-Everything here is **read-only** except step 4, which is gated behind
-`-Execute` and will currently fail with 403 (see below).
+Everything here is **read-only** except step 5, which is gated behind
+`-Execute`. Confirm the target alert with the DLP team before running that one.
 
 ---
 
@@ -125,27 +125,87 @@ Without a server-side filter, narrowing locally by name instead:
 
 ---
 
-## 4. Write test — expect 403 for now
+## 4. Find a specific alert
 
-Only `SecurityAlert.Read.All` is granted, so the PATCH will be refused. Run it
-anyway: the refusal is the evidence, and it is the documented answer to the HLD
-spike *"test whether any supported interface can update the IRM alert/case"*.
+`alerts_v2` will not help you look one up. It caps every query at 100 records,
+returns no continuation link to page past that, orders results **oldest first**,
+reports insider risk alerts with `serviceSource: unknownFutureValue` so they
+cannot be filtered server-side, and rejects `startswith()` and `contains()`.
+This tenant produces roughly 7,000 alerts a day. None of that is documented.
 
-Dry run — changes nothing, shows what it would send:
+So you cannot enumerate the queue. You need either the full alert id, or a
+creation date to sweep around.
+
+**Insider risk ids are predictable**: `ir` + the short code in the title + a
+GUID. Title `Purview IRM ('da9ffdde') ...` → id `irda9ffdde-...`.
+
+Read an alert directly, if you have the id:
 
 ```powershell
-.\13-Update-IrmAlert.ps1 -Id "<id>" -AssignTo "analyst@woodside.com" -NewStatus inProgress
+.\15-Find-Alert.ps1 -Id "irda9ffdde-326d-4cdd-bef1-968c8faac3cb"
 ```
 
-Attempt it:
+Hunt for one by its short code and a known creation date — sweeps the window in
+time slices, splitting any slice that comes back full:
 
 ```powershell
-.\13-Update-IrmAlert.ps1 -Id "<id>" -AssignTo "analyst@woodside.com" -NewStatus inProgress -Execute
+.\15-Find-Alert.ps1 -Code "da9ffdde" -Date "2026-10-30 00:00" -HoursEitherSide 24 -MaxCalls 800
 ```
 
-Either way the attempt is journalled to `out\irm-update-*.json`.
+Ask for the creation date before sweeping. Guessing costs hundreds of requests
+per attempt — the alert above was created 29 Oct, not the 12 Oct first activity
+nor the 30 Oct last update, so two windows missed it.
 
 ---
+
+## 5. Write test
+
+`SecurityAlert.ReadWrite.All` is granted (Application, admin consent), so the
+PATCH now goes through.
+
+**Confirm which alert before writing to anything.** The DLP team asked to be
+told first. `da9ffdde` is the agreed test case; nothing else is approved.
+
+Its state before the test — all three at their defaults, so the restore is
+exact:
+
+```
+status: new    assignedTo: (empty)    classification: (empty)
+```
+
+Dry run first — reads the alert, prints what it would send, changes nothing:
+
+```powershell
+.\13-Update-IrmAlert.ps1 -Id "irda9ffdde-326d-4cdd-bef1-968c8faac3cb" -AssignTo "PRADIP.SILWAL@woodside.com" -NewStatus inProgress
+```
+
+Then the real write:
+
+```powershell
+.\13-Update-IrmAlert.ps1 -Id "irda9ffdde-326d-4cdd-bef1-968c8faac3cb" -AssignTo "PRADIP.SILWAL@woodside.com" -NewStatus inProgress -Execute
+```
+
+Restore — run this once the Purview side has been observed, not immediately:
+
+```powershell
+.\13-Update-IrmAlert.ps1 -Id "irda9ffdde-326d-4cdd-bef1-968c8faac3cb" -AssignTo "" -NewStatus new -Execute
+```
+
+Every attempt is journalled to `out\irm-update-*.json` with the before state.
+
+**Use `inProgress`, never `resolved`.** Resolving without a classification maps
+to **Dismissed** in Purview — see the mapping tables below. This is a live alert
+concerning a named employee.
+
+Two things to watch between the write and the restore, both currently unproven:
+
+- Does the change reach **Purview**? Allow 30 minutes. Note that `new` and
+  `inProgress` both display as *Needs review* there, so the **assignment** is
+  the visible difference, not the status. Whether `assignedTo` syncs at all is
+  not in Microsoft's documented field list — worth settling either way.
+- Does the **parent incident** change? Alerts and incidents are separate
+  objects with separate permissions, so it should not. Confirming that is the
+  direct answer to the Cyber Defence Centre's concern about their queue.
 
 ## If step 11 returns no IRM alerts
 
@@ -172,8 +232,8 @@ alerts dashboard before concluding anything about API access.
 
 | Permission | Incidents | Alerts | Granted? |
 |---|---|---|---|
-| `SecurityAlert.Read.All` | — | Read | **Yes** |
-| `SecurityAlert.ReadWrite.All` | — | Read/Write | Not yet |
+| `SecurityAlert.Read.All` | — | Read | Superseded |
+| `SecurityAlert.ReadWrite.All` | — | Read/Write | **Yes** |
 | `SecurityIncident.ReadWrite.All` | Read/Write | Read/Write | No — and not wanted |
 
 Alerts and incidents are **separate objects with separate permissions**. The
