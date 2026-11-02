@@ -242,22 +242,29 @@ confirmed insider risk finding against a named employee.
 Then wait 30 minutes and have the alert owner check Purview. Expect
 **Needs review → Dismissed**.
 
-### Attempted revert
+### Revert — confirmed working
 
 ```powershell
 .\13-Update-IrmAlert.ps1 -Id "irda9ffdde-326d-4cdd-bef1-968c8faac3cb" -AssignTo "" -NewStatus new -Classification unknown -Execute
 ```
 
-Expect this to be imperfect. Graph lists `unknown` in the classification enum,
-but enums are frequently read-only for that value and reject it on write.
-Microsoft documents the Defender → Purview mapping and says nothing about
-undoing it, so the classification may stick in Purview even if Defender accepts
-the reset.
+Run 2 Nov at 16:04. All three fields returned to their original values exactly:
+status `new`, `assignedTo` empty, classification **empty**.
 
-If it does not revert cleanly, record that rather than working around it. **An
-agent that can classify but cannot un-classify is a one-way door**, and that is
-a real constraint on how much autonomy the production design can be given. It
-belongs in the HLD.
+`unknown` is how the API expresses "no classification". There is no way to send
+a blank value, and `unknown` was expected to be rejected on write the way enum
+placeholder values usually are. It is not — Graph accepts it and stores an
+empty classification, which is the alert's original state.
+
+**Classification is therefore reversible.** An agent can undo its own
+classification, so classification authority need not be treated as a one-way
+door. The opposite result would have argued for a mandatory human confirmation
+in front of every classifying write.
+
+The verifier used to report `FAIL classification is '', expected 'unknown'`
+here. That was the check being too literal about its own input, not the write
+failing. Fixed — an empty read-back after sending `unknown` is now reported as
+a cleared classification.
 
 ## If step 11 returns no IRM alerts
 

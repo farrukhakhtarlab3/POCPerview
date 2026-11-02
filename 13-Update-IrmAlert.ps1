@@ -136,9 +136,21 @@ if ($result.Outcome -eq 'SUCCESS') {
         $after = Invoke-MgGraphRequest -Method GET -Uri "$base/$Id" -OutputType PSObject -ErrorAction Stop
         $ok = $true
         foreach ($k in $body.Keys) {
-            $now = Get-Prop $after $k
-            if ("$now" -eq "$($body[$k])") { Write-Ok ("{0} = {1}" -f $k, $now) }
-            else { Write-Bad ("{0} is '{1}', expected '{2}'" -f $k, $now, $body[$k]); $ok = $false }
+            $now  = "$(Get-Prop $after $k)"
+            $sent = "$($body[$k])"
+
+            # 'unknown' is how the API expresses 'no classification'. Graph
+            # accepts it and stores an empty value, so an empty read-back is
+            # the write succeeding, not failing. Confirmed 2 Nov 2026 -
+            # clearing a classification set earlier returned it to empty,
+            # which is the alert's original state.
+            if ($k -eq 'classification' -and $sent -eq 'unknown' -and $now -eq '') {
+                Write-Ok "classification cleared (sent 'unknown', stored empty)"
+                continue
+            }
+
+            if ($now -eq $sent) { Write-Ok ("{0} = {1}" -f $k, $now) }
+            else { Write-Bad ("{0} is '{1}', expected '{2}'" -f $k, $now, $sent); $ok = $false }
         }
         if ($ok) {
             Write-Host ''
