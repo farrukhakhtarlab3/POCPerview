@@ -207,6 +207,58 @@ Two things to watch between the write and the restore, both currently unproven:
   objects with separate permissions, so it should not. Confirming that is the
   direct answer to the Cyber Defence Centre's concern about their queue.
 
+---
+
+## 6. Close test — the only change Purview can show
+
+Observed on 2 Nov: after setting the alert to `inProgress`, Purview still read
+**Needs review**. That is correct and documented — `new` and `inProgress` both
+map to *Needs review*, so the status column cannot move for that write. It is
+not evidence the sync failed, and it is not evidence it worked.
+
+The only write that produces a visible status change in Purview is **resolved
+plus a classification**:
+
+| Command | Purview result |
+|---|---|
+| `-NewStatus resolved -Classification truePositive` | **Confirmed** |
+| `-NewStatus resolved -Classification informationalExpectedActivity` | **Dismissed** |
+| `-NewStatus resolved -Classification falsePositive` | **Dismissed** |
+| `-NewStatus resolved` with no classification | **Dismissed** — silently |
+
+**Get the alert owner's explicit agreement before running this.** It writes a
+real disposition on a real alert about a named user and takes it out of the
+review queue. It is not a cosmetic change, and reverting it is unproven.
+
+Use `informationalExpectedActivity` for a test. Microsoft's own description of
+that value is *"includes security testing, confirmed activity"*, which is
+exactly what this is. Never use `truePositive` for a test — that records a
+confirmed insider risk finding against a named employee.
+
+```powershell
+.\13-Update-IrmAlert.ps1 -Id "irda9ffdde-326d-4cdd-bef1-968c8faac3cb" -NewStatus resolved -Classification informationalExpectedActivity -Execute
+```
+
+Then wait 30 minutes and have the alert owner check Purview. Expect
+**Needs review → Dismissed**.
+
+### Attempted revert
+
+```powershell
+.\13-Update-IrmAlert.ps1 -Id "irda9ffdde-326d-4cdd-bef1-968c8faac3cb" -AssignTo "" -NewStatus new -Classification unknown -Execute
+```
+
+Expect this to be imperfect. Graph lists `unknown` in the classification enum,
+but enums are frequently read-only for that value and reject it on write.
+Microsoft documents the Defender → Purview mapping and says nothing about
+undoing it, so the classification may stick in Purview even if Defender accepts
+the reset.
+
+If it does not revert cleanly, record that rather than working around it. **An
+agent that can classify but cannot un-classify is a one-way door**, and that is
+a real constraint on how much autonomy the production design can be given. It
+belongs in the HLD.
+
 ## If step 11 returns no IRM alerts
 
 Check these in order before assuming a permissions problem.
@@ -277,3 +329,15 @@ hasn't appeared yet — re-read the alert through the API instead, which
 
 Alert **notes** do not sync between the two. Retention differs too: the
 Defender portal holds these for six months, the Purview dashboard for 30 days.
+
+Purview's own status filter offers four values — Needs review, Confirmed,
+Dismissed and **Resolved** — but no Defender value maps to *Resolved*. It does
+not appear anywhere in Microsoft's mapping tables. So an agent writing through
+the Defender API can produce Needs review, Confirmed or Dismissed, and never
+Resolved. If the organisation's IRM process ends in Resolved, that last step
+stays a human action in the Purview portal. Worth raising early — it is a
+ceiling on what the agent can close out, not a bug to engineer around.
+
+`assignedTo` is not in Microsoft's synced-field list either. The page does not
+mention assignment in either direction, so whether it reaches Purview is
+undocumented.
