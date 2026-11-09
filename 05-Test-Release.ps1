@@ -8,8 +8,12 @@
     never confirms them either. This script settles it.
 
     The answer determines the product:
-      works      -> the agent can clear the queue autonomously
+      works      -> the agent can carry out an approved release itself
       fails      -> the agent recommends, a human clicks release
+
+    Either way a human still approves. Both HLDs scope autonomous release
+    out deliberately; what this settles is whether the tool can perform the
+    action, not whether it may decide to.
 
     THIS DELIVERS A REAL EMAIL AND CANNOT BE UNDONE.
     Nothing happens without -Execute and a typed confirmation.
@@ -98,7 +102,7 @@ try {
     $result.Outcome = 'SUCCESS'
     Write-Ok 'Release succeeded under the application identity.'
     Write-Host ''
-    Write-Host '  The autonomous design holds. The agent can act, not just advise.' -ForegroundColor Green
+    Write-Host '  The act-and-record step is executable. Approval still belongs to a human.' -ForegroundColor Green
 }
 catch {
     $result.Outcome = 'FAILED'
