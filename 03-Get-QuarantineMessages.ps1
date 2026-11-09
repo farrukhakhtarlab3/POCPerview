@@ -20,8 +20,8 @@ $end   = Get-Date
 Write-Step "Outbound DLP quarantine - last $Days days"
 $dlp = @()
 try {
-    $dlp = @(Get-QuarantineMessage -StartReceivedDate $start -EndReceivedDate $end `
-                -Direction Outbound -Type DataLossPrevention -PageSize 100 -ErrorAction Stop)
+    $dlp = @(Get-AllQuarantineMessages -Start $start -End $end -ShowProgress `
+                -Filter @{ Direction = 'Outbound'; Type = 'DataLossPrevention' })
     Write-Ok "$($dlp.Count) message(s)"
 }
 catch {
@@ -34,8 +34,7 @@ if ($dlp.Count -eq 0) {
 
     Write-Step 'Everything visible to this identity'
     try {
-        $all = @(Get-QuarantineMessage -StartReceivedDate $start -EndReceivedDate $end `
-                    -PageSize 100 -ErrorAction Stop)
+        $all = @(Get-AllQuarantineMessages -Start $start -End $end -ShowProgress)
         Write-Ok "$($all.Count) message(s) total"
         if ($all.Count -gt 0) {
             $all | Group-Object QuarantineTypes | Sort-Object Count -Descending |

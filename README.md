@@ -1,6 +1,7 @@
 # Quarantine Triage POC
 
 > **Just want the commands?** → **[STEPS.md](STEPS.md)** — copy-paste run sheet for the VDI.
+> Finishing the outstanding measurements? **[QUARANTINE-FINISH.md](QUARANTINE-FINISH.md)**.
 > Insider Risk side only? **[IRM-QUICKSTART.md](IRM-QUICKSTART.md)**.
 
 Technical feasibility test for the email quarantine support agent.

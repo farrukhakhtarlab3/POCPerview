@@ -33,7 +33,7 @@ $start = (Get-Date).AddDays(-$Days)
 $end = Get-Date
 
 Write-Step "Reading quarantine - last $Days days"
-$all = @(Get-QuarantineMessage -StartReceivedDate $start -EndReceivedDate $end -PageSize 100)
+$all = @(Get-AllQuarantineMessages -Start $start -End $end -ShowProgress)
 Write-Ok "$($all.Count) message(s) visible to this identity"
 
 if ($all.Count -eq 0) { Write-Warn2 'Nothing to profile.'; return }

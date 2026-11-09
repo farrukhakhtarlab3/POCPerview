@@ -354,3 +354,53 @@ function Get-AlertsSliced {
 
     return $all
 }
+function Get-AllQuarantineMessages {
+    <#  .SYNOPSIS
+        Retrieve every quarantine record in a window, paging past the cap.
+
+        Get-QuarantineMessage returns one page at a time. -PageSize accepts up
+        to 1000 and -Page up to 1000, and a call that omits -Page returns only
+        the first page with nothing to signal that more exist. A count taken
+        from a single call is therefore a page size, not a total - which is the
+        mistake this helper exists to prevent.
+
+        Paging stops when a page comes back short, which is the only available
+        end-of-results signal.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][datetime]$Start,
+        [Parameter(Mandatory = $true)][datetime]$End,
+
+        # Extra selectors passed straight through, e.g.
+        #   @{ Direction = 'Outbound'; Type = 'DataLossPrevention' }
+        [hashtable]$Filter = @{},
+
+        [ValidateRange(1, 1000)][int]$PageSize = 1000,
+        [ValidateRange(1, 1000)][int]$MaxPages = 1000,
+        [switch]$ShowProgress
+    )
+
+    $all  = @()
+    $page = 1
+
+    while ($page -le $MaxPages) {
+        $batch = @(Get-QuarantineMessage -StartReceivedDate $Start -EndReceivedDate $End `
+                      -PageSize $PageSize -Page $page @Filter -ErrorAction Stop)
+        $all += $batch
+
+        if ($ShowProgress) {
+            Write-Info ("page {0,-4} +{1,-5} running total {2}" -f $page, $batch.Count, $all.Count)
+        }
+
+        # A short page is the last page. There is no continuation token.
+        if ($batch.Count -lt $PageSize) { break }
+        $page++
+    }
+
+    if ($page -gt $MaxPages) {
+        Write-Warn2 "Stopped at the $MaxPages-page ceiling - the real total may be higher."
+    }
+
+    return ,$all
+}
